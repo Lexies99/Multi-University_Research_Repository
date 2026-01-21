@@ -10,8 +10,9 @@ import { SearchDiscovery } from '../components/library/SearchDiscovery';
 import { DocumentUpload } from '../components/library/DocumentUpload';
 import { Dashboard } from '../components/library/Dashboard';
 import { AccountManagement } from '../components/library/AccountManagement';
+import { Profile } from '../components/library/Profile';
 import { useAuth } from '../context/AuthContext';
-import { Book, Users, BookOpen, Settings, BarChart3, Library, Upload, Search, LogOut } from 'lucide-react';
+import { Book, Users, BookOpen, Settings, BarChart3, Library, Upload, Search, LogOut, User } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 
@@ -94,7 +95,7 @@ export default function Home() {
       <div className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className={`grid w-full mb-6 ${
-            user?.role === 'admin' ? 'grid-cols-7' :
+            user?.role === 'librarian' ? 'grid-cols-7' :
             user?.role === 'staff' ? 'grid-cols-6' :
             user?.role === 'member' ? 'grid-cols-5' :
             'grid-cols-2'
@@ -133,16 +134,16 @@ export default function Home() {
 
             {isAuthenticated && (
               <TabsTrigger 
-                value="account"
-                onClick={() => handleMemberOnlyAccess('account')}
+                value="profile"
+                onClick={() => handleMemberOnlyAccess('profile')}
                 className="flex items-center gap-2"
               >
-                <Users className="size-4" />
-                <span className="hidden sm:inline">Account</span>
+                <User className="size-4" />
+                <span className="hidden sm:inline">Profile</span>
               </TabsTrigger>
             )}
 
-            {(user?.role === 'staff' || user?.role === 'admin') && (
+            {(user?.role === 'staff' || user?.role === 'librarian') && (
               <TabsTrigger 
                 value="approval"
                 onClick={() => handleMemberOnlyAccess('approval')}
@@ -158,14 +159,14 @@ export default function Home() {
               </TabsTrigger>
             )}
 
-            {user?.role === 'admin' && (
+            {user?.role === 'librarian' && (
               <TabsTrigger 
-                value="admin"
-                onClick={() => handleMemberOnlyAccess('admin')}
+                value="librarian"
+                onClick={() => handleMemberOnlyAccess('librarian')}
                 className="flex items-center gap-2"
               >
                 <Settings className="size-4" />
-                <span className="hidden sm:inline">Admin</span>
+                <span className="hidden sm:inline">Librarian</span>
               </TabsTrigger>
             )}
           </TabsList>
@@ -190,20 +191,14 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {isAuthenticated && (
-            <TabsContent value="account">
-              <UserAccount />
-            </TabsContent>
-          )}
-
-          {(user?.role === 'staff' || user?.role === 'admin') && (
+          {(user?.role === 'staff' || user?.role === 'librarian') && (
             <TabsContent value="approval">
               <ApprovalWorkflow />
             </TabsContent>
           )}
 
-          {user?.role === 'admin' && (
-            <TabsContent value="admin">
+          {user?.role === 'librarian' && (
+            <TabsContent value="librarian">
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-bold mb-4">Account Management</h2>
@@ -214,6 +209,12 @@ export default function Home() {
                   <LibraryStats />
                 </div>
               </div>
+            </TabsContent>
+          )}
+
+          {isAuthenticated && (
+            <TabsContent value="profile">
+              <Profile />
             </TabsContent>
           )}
         </Tabs>

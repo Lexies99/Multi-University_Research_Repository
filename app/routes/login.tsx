@@ -95,7 +95,7 @@ export default function LoginPage() {
             <div>
               <Label className="mb-3 block">Account Type</Label>
               <div className="grid grid-cols-2 gap-2">
-                {(['member', 'staff', 'admin'] as const).map(role => (
+                {(['member', 'staff', 'librarian'] as const).map(role => (
                   <button
                     key={role}
                     onClick={() => setSelectedRole(role)}
@@ -109,9 +109,9 @@ export default function LoginPage() {
                   </button>
                 ))}
               </div>
-              {selectedRole === 'admin' && (
+              {selectedRole === 'librarian' && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Admin accounts can only be created by existing admins
+                  Librarian accounts can only be created by existing librarians
                 </p>
               )}
             </div>
@@ -155,7 +155,7 @@ export default function LoginPage() {
 
             {/* Footer */}
             <p className="text-xs text-muted-foreground text-center mt-4">
-              {selectedRole === 'member' ? 'Students: Contact your institution admin to create your account' : 'For access requests, contact your institution administrator'}
+              {selectedRole === 'member' ? 'Students: Contact your institution librarian to create your account' : 'For access requests, contact your institution librarian'}
             </p>
           </CardContent>
         </Card>
@@ -188,11 +188,11 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Admin Account */}
+            {/* Librarian Account */}
             <div>
-              <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">Admin Account:</p>
+              <p className="text-xs font-semibold text-blue-900 dark:text-blue-100 mb-2">Librarian Account:</p>
               <div className="space-y-1 bg-white dark:bg-slate-900 p-2 rounded text-xs">
-                <div>📧 admin@murrs.edu | 🔑 admin123</div>
+                <div>📧 librarian@murrs.edu | 🔑 librarian123</div>
               </div>
             </div>
 

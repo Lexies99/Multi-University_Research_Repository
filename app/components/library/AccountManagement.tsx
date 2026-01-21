@@ -13,7 +13,7 @@ interface CreatedAccount {
   id: string
   email: string
   name: string
-  role: 'member' | 'staff'
+  role: 'member' | 'staff' | 'librarian'
   createdDate: string
   university: string
   department: string
@@ -45,15 +45,27 @@ export function AccountManagement() {
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
   const [newDepartment, setNewDepartment] = useState('')
-  const [newRole, setNewRole] = useState<'member' | 'staff'>('member')
+  const [newRole, setNewRole] = useState<'member' | 'staff' | 'librarian'>('member')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [error, setError] = useState('')
 
   const handleCreateAccount = () => {
     setError('')
 
-    if (!newEmail || !newName || !newDepartment) {
+    if (!newEmail || !newName || !newDepartment || !newPassword) {
       setError('Please fill in all fields')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters')
       return
     }
 
@@ -85,6 +97,8 @@ export function AccountManagement() {
     setNewEmail('')
     setNewName('')
     setNewDepartment('')
+    setNewPassword('')
+    setConfirmPassword('')
     setNewRole('member')
     setDialogOpen(false)
   }
@@ -93,8 +107,8 @@ export function AccountManagement() {
     setAccounts(accounts.filter(a => a.id !== id))
   }
 
-  // Only admin can access this
-  if (user?.role !== 'admin') {
+  // Only librarian can access this
+  if (user?.role !== 'librarian') {
     return (
       <div className="space-y-6">
         <Card className="border-destructive/50 bg-destructive/5">
@@ -102,7 +116,7 @@ export function AccountManagement() {
             <Lock className="h-5 w-5 text-destructive" />
             <div>
               <p className="font-semibold">Access Denied</p>
-              <p className="text-sm text-muted-foreground">Only administrators can manage user accounts</p>
+              <p className="text-sm text-muted-foreground">Only librarians can manage user accounts</p>
             </div>
           </CardContent>
         </Card>
@@ -174,15 +188,40 @@ export function AccountManagement() {
 
               <div>
                 <Label htmlFor="role">Account Type</Label>
-                <Select value={newRole} onValueChange={(val) => setNewRole(val as 'member' | 'staff')}>
+                <Select value={newRole} onValueChange={(val) => setNewRole(val as 'member' | 'staff' | 'librarian')}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select account type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="member">Member (Student)</SelectItem>
                     <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="librarian">Librarian</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter password (min. 6 characters)"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="confirm-password">Confirm Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-1"
+                />
               </div>
 
               <Button onClick={handleCreateAccount} className="w-full">
