@@ -8,17 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
 import { Search, Filter, Download, Eye, Bookmark, Grid3x3, List, X } from 'lucide-react'
-
-const mockPapers = [
-  { id: 1, title: 'Advanced AI in Healthcare: Deep Learning Applications', authors: ['Dr. Smith', 'Dr. Johnson'], views: 2341, downloads: 512, citations: 45, year: 2024, discipline: 'Computer Science', university: 'MIT', abstract: 'This paper explores deep learning applications in medical diagnosis and treatment planning.', keywords: ['AI', 'Healthcare', 'Deep Learning', 'Medical Imaging'] },
-  { id: 2, title: 'Quantum Computing Applications in Optimization', authors: ['Prof. Lee'], views: 1823, downloads: 234, citations: 28, year: 2023, discipline: 'Physics', university: 'Stanford', abstract: 'A comprehensive study of quantum algorithms for solving optimization problems.', keywords: ['Quantum', 'Computing', 'Optimization', 'Algorithms'] },
-  { id: 3, title: 'Sustainable Energy Solutions for Urban Development', authors: ['Dr. Chen', 'Dr. Patel'], views: 3452, downloads: 891, citations: 67, year: 2024, discipline: 'Engineering', university: 'UC Berkeley', abstract: 'Innovative approaches to renewable energy integration in smart cities.', keywords: ['Energy', 'Sustainability', 'Urban', 'Green Tech'] },
-  { id: 4, title: 'Machine Learning in Financial Risk Assessment', authors: ['Prof. Brown'], views: 2156, downloads: 445, citations: 52, year: 2023, discipline: 'Computer Science', university: 'Harvard', abstract: 'Machine learning models for predicting financial risk and market trends.', keywords: ['ML', 'Finance', 'Risk', 'Prediction'] },
-  { id: 5, title: 'Blockchain Security Analysis and Best Practices', authors: ['Dr. Martinez'], views: 1567, downloads: 234, citations: 19, year: 2024, discipline: 'Computer Science', university: 'Oxford', abstract: 'Security vulnerabilities and mitigation strategies in blockchain systems.', keywords: ['Blockchain', 'Security', 'Cryptography', 'Consensus'] },
-  { id: 6, title: 'Climate Change Mitigation Through Carbon Capture', authors: ['Prof. Wilson', 'Dr. Garcia'], views: 4123, downloads: 1023, citations: 89, year: 2024, discipline: 'Environmental Science', university: 'Cambridge', abstract: 'Advanced techniques for capturing and storing atmospheric carbon dioxide.', keywords: ['Climate', 'Carbon', 'Environment', 'Mitigation'] },
-  { id: 7, title: 'Advanced Materials for Next Generation Computing', authors: ['Dr. Kumar', 'Prof. Anderson'], views: 1945, downloads: 389, citations: 34, year: 2023, discipline: 'Physics', university: 'MIT', abstract: 'Exploring new semiconductor materials for quantum computing applications.', keywords: ['Materials', 'Semiconductors', 'Computing', 'Innovation'] },
-  { id: 8, title: 'Artificial Intelligence in Drug Discovery', authors: ['Dr. Thompson'], views: 2834, downloads: 678, citations: 56, year: 2024, discipline: 'Medicine', university: 'Harvard', abstract: 'AI-powered approaches accelerating pharmaceutical research and development.', keywords: ['AI', 'Drug Discovery', 'Pharma', 'Molecular'] },
-]
+import { mockPapers } from '../../lib/mockPapers'
 
 export function SearchDiscovery() {
   const navigate = useNavigate()
@@ -35,7 +25,8 @@ export function SearchDiscovery() {
   const resultsPerPage = 6
 
   const handleDownload = (paperId: number) => {
-    if (!isAuthenticated) {
+    // Guests and unauthenticated users cannot download
+    if (!isAuthenticated || user?.role === 'guest') {
       navigate('/login')
       return
     }
@@ -287,7 +278,7 @@ export function SearchDiscovery() {
                   <CardContent className="pt-6">
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-base mb-2 line-clamp-2 hover:text-primary cursor-pointer">{paper.title}</h3>
+                        <h3 className="font-semibold text-base mb-2 line-clamp-2 hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</h3>
                         <p className="text-sm text-muted-foreground mb-1">by {paper.authors.join(', ')}</p>
                         <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{paper.abstract}</p>
                         <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
@@ -317,9 +308,9 @@ export function SearchDiscovery() {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          title={isAuthenticated ? "Download" : "Login to download"}
+                          title={isAuthenticated && user?.role !== 'guest' ? "Download" : "Login to download"}
                           onClick={() => handleDownload(paper.id)}
-                          disabled={!isAuthenticated}
+                          disabled={!isAuthenticated || user?.role === 'guest'}
                         >
                           <Download className="h-4 w-4" />
                         </Button>
@@ -334,7 +325,7 @@ export function SearchDiscovery() {
               {paginatedPapers.map(paper => (
                 <Card key={paper.id} className="hover:shadow-md transition-shadow flex flex-col">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm line-clamp-2 hover:text-primary cursor-pointer">{paper.title}</CardTitle>
+                    <CardTitle className="text-sm line-clamp-2 hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</CardTitle>
                     <CardDescription className="text-xs">{paper.authors.join(', ')}</CardDescription>
                   </CardHeader>
                   <CardContent className="pb-3 flex-1 space-y-3">
@@ -361,7 +352,7 @@ export function SearchDiscovery() {
                       >
                         <Bookmark className="h-3 w-3" />
                       </Button>
-                      <Button size="sm" variant="outline" className="flex-1" onClick={() => handleDownload(paper.id)} disabled={!isAuthenticated}>
+                      <Button size="sm" variant="outline" className="flex-1" onClick={() => handleDownload(paper.id)} disabled={!isAuthenticated || user?.role === 'guest'}>
                         <Download className="h-3 w-3" />
                       </Button>
                     </div>

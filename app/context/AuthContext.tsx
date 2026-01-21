@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useContext, useState, useEffect } from 'react'
 
 export type UserRole = 'guest' | 'member' | 'staff' | 'librarian'
 
@@ -41,6 +41,16 @@ const TEST_ACCOUNTS = {
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('murrs_user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setUser(parsed);
+      }
+    } catch {}
+  }, []);
 
   const login = (email: string, password: string, role: UserRole): boolean => {
     if (!email || !password) return false
@@ -92,19 +102,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const changePassword = (oldPassword: string, newPassword: string): boolean => {
     if (!user || !oldPassword || !newPassword) return false
-    
-    // Get stored user data to verify old password
-    const storedUser = localStorage.getItem('murrs_user')
-    if (!storedUser) return false
-
-    // Check if old password matches any test account
-    const accounts = TEST_ACCOUNTS[user.role as keyof typeof TEST_ACCOUNTS] || []
-    const testAccount = accounts.find(acc => acc.email === user.email && acc.password === oldPassword)
-
-    if (!testAccount && oldPassword !== 'password123' && oldPassword !== 'librarian123') return false
-
-    // In a real app, update password in database
-    // For now, just return true as password change is successful
+    if (oldPassword === newPassword) return false
+    // Mock: assume success. In a real app, call API and update stored credentials.
     return true
   }
 

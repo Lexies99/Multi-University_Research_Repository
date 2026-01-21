@@ -7,18 +7,7 @@ import { Input } from '../ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { useAuth } from '../../context/AuthContext'
 import { Bookmark, Download, Eye, Grid3x3, List, Search, Star, TrendingUp } from 'lucide-react'
-
-const mockPapers = [
-  { id: 1, title: 'Advanced AI in Healthcare: Deep Learning Applications', authors: ['Dr. Smith', 'Dr. Johnson'], downloads: 512, views: 2341, citations: 45, year: 2024, discipline: 'Computer Science', rating: 4.8, university: 'MIT', abstract: 'Exploring deep learning applications in medical diagnosis and treatment planning.' },
-  { id: 2, title: 'Quantum Computing Applications in Optimization', authors: ['Prof. Lee'], downloads: 234, views: 1823, citations: 28, year: 2023, discipline: 'Physics', rating: 4.6, university: 'Stanford', abstract: 'A comprehensive study of quantum algorithms for solving optimization problems.' },
-  { id: 3, title: 'Sustainable Energy Solutions for Urban Development', authors: ['Dr. Chen', 'Dr. Patel'], downloads: 891, views: 3452, citations: 67, year: 2024, discipline: 'Engineering', rating: 4.9, university: 'UC Berkeley', abstract: 'Innovative approaches to renewable energy integration in smart cities.' },
-  { id: 4, title: 'Machine Learning in Financial Risk Assessment', authors: ['Prof. Brown'], downloads: 445, views: 2156, citations: 52, year: 2023, discipline: 'Computer Science', rating: 4.7, university: 'Harvard', abstract: 'Machine learning models for predicting financial risk and market trends.' },
-  { id: 5, title: 'Blockchain Security Analysis and Best Practices', authors: ['Dr. Martinez'], downloads: 234, views: 1567, citations: 19, year: 2024, discipline: 'Computer Science', rating: 4.5, university: 'Oxford', abstract: 'Security vulnerabilities and mitigation strategies in blockchain systems.' },
-  { id: 6, title: 'Climate Change Mitigation Through Carbon Capture', authors: ['Prof. Wilson', 'Dr. Garcia'], downloads: 1023, views: 4123, citations: 89, year: 2024, discipline: 'Environmental Science', rating: 4.9, university: 'Cambridge', abstract: 'Advanced techniques for capturing and storing atmospheric carbon dioxide.' },
-  { id: 7, title: 'Advanced Materials for Next Generation Computing', authors: ['Dr. Kumar', 'Prof. Anderson'], downloads: 389, views: 1945, citations: 34, year: 2023, discipline: 'Physics', rating: 4.6, university: 'MIT', abstract: 'Exploring new semiconductor materials for quantum computing applications.' },
-  { id: 8, title: 'Artificial Intelligence in Drug Discovery', authors: ['Dr. Thompson'], downloads: 678, views: 2834, citations: 56, year: 2024, discipline: 'Medicine', rating: 4.8, university: 'Harvard', abstract: 'AI-powered approaches accelerating pharmaceutical research and development.' },
-  { id: 9, title: 'Renewable Energy Storage Technologies', authors: ['Dr. Hassan', 'Prof. Lee'], downloads: 567, views: 3100, citations: 71, year: 2024, discipline: 'Engineering', rating: 4.7, university: 'Stanford', abstract: 'Battery and hydrogen storage solutions for renewable energy integration.' },
-]
+import { mockPapers } from '../../lib/mockPapers'
 
 const categories = [
   { id: 'all', label: 'All Papers', count: 9 },
@@ -29,14 +18,15 @@ const categories = [
 
 export function PublicCatalog() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [bookmarked, setBookmarked] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
 
   const handleDownload = (paperId: number) => {
-    if (!isAuthenticated) {
+    // Guests and unauthenticated users cannot download
+    if (!isAuthenticated || user?.role === 'guest') {
       navigate('/login')
       return
     }
@@ -78,7 +68,7 @@ export function PublicCatalog() {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
-            <CardTitle className="text-base line-clamp-2 hover:text-primary cursor-pointer">{paper.title}</CardTitle>
+            <CardTitle className="text-base line-clamp-2 hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</CardTitle>
             <CardDescription className="text-xs mt-1">{paper.authors.join(', ')}</CardDescription>
           </div>
           <div className="flex items-center gap-1 text-yellow-500 flex-shrink-0">
@@ -116,7 +106,7 @@ export function PublicCatalog() {
             variant="outline" 
             className="flex-1"
             onClick={() => handleDownload(paper.id)}
-            disabled={!isAuthenticated}
+            disabled={!isAuthenticated || user?.role === 'guest'}
           >
             <Download className="h-3 w-3 mr-1" />
             Download
@@ -195,7 +185,7 @@ export function PublicCatalog() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-semibold text-muted-foreground">#{idx + 1}</span>
-                          <h3 className="font-semibold hover:text-primary cursor-pointer">{paper.title}</h3>
+                          <h3 className="font-semibold hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</h3>
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">{paper.authors.join(', ')}</p>
                         <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{paper.abstract}</p>
@@ -224,7 +214,7 @@ export function PublicCatalog() {
                           size="sm" 
                           variant="outline"
                           onClick={() => handleDownload(paper.id)}
-                          disabled={!isAuthenticated}
+                          disabled={!isAuthenticated || user?.role === 'guest'}
                         >
                           <Download className="h-4 w-4" />
                         </Button>

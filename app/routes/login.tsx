@@ -44,7 +44,7 @@ export default function LoginPage() {
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleLogin()
   }
 
@@ -125,7 +125,7 @@ export default function LoginPage() {
                 placeholder="name@university.edu"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 className="mt-1"
               />
             </div>
@@ -139,7 +139,7 @@ export default function LoginPage() {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 className="mt-1"
               />
               <p className="text-xs text-muted-foreground mt-2">

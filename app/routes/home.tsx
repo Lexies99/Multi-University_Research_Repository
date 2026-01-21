@@ -28,12 +28,22 @@ export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('catalog');
 
-  // Redirect to login if not authenticated and trying to access member-only features
-  const handleMemberOnlyAccess = (tab: string) => {
-    if (!isAuthenticated && tab !== 'catalog' && tab !== 'search') {
+  const handleTabChange = (tab: string) => {
+    const publicTabs = new Set(['catalog', 'search']);
+
+    // Treat guest as unauthenticated: only allow public tabs
+    const isGuest = user?.role === 'guest';
+    const isAuthedNonGuest = isAuthenticated && !isGuest;
+
+    if (!isAuthedNonGuest && !publicTabs.has(tab)) {
       navigate('/login');
       return;
     }
+
+    // Role-based guards for authenticated non-guest users
+    if (tab === 'approval' && !(user?.role === 'staff' || user?.role === 'librarian')) return;
+    if (tab === 'librarian' && user?.role !== 'librarian') return;
+
     setActiveTab(tab);
   };
 
@@ -93,7 +103,7 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className={`grid w-full mb-6 ${
             user?.role === 'librarian' ? 'grid-cols-7' :
             user?.role === 'staff' ? 'grid-cols-6' :
@@ -110,10 +120,9 @@ export default function Home() {
               <span className="hidden sm:inline">Search</span>
             </TabsTrigger>
 
-            {isAuthenticated && (
+            {isAuthenticated && user?.role !== 'guest' && (
               <TabsTrigger 
                 value="dashboard" 
-                onClick={() => handleMemberOnlyAccess('dashboard')}
                 className="flex items-center gap-2"
               >
                 <BarChart3 className="size-4" />
@@ -121,10 +130,9 @@ export default function Home() {
               </TabsTrigger>
             )}
 
-            {isAuthenticated && (
+            {isAuthenticated && user?.role !== 'guest' && (
               <TabsTrigger 
                 value="upload"
-                onClick={() => handleMemberOnlyAccess('upload')}
                 className="flex items-center gap-2"
               >
                 <Upload className="size-4" />
@@ -132,10 +140,9 @@ export default function Home() {
               </TabsTrigger>
             )}
 
-            {isAuthenticated && (
+            {isAuthenticated && user?.role !== 'guest' && (
               <TabsTrigger 
                 value="profile"
-                onClick={() => handleMemberOnlyAccess('profile')}
                 className="flex items-center gap-2"
               >
                 <User className="size-4" />
@@ -146,7 +153,6 @@ export default function Home() {
             {(user?.role === 'staff' || user?.role === 'librarian') && (
               <TabsTrigger 
                 value="approval"
-                onClick={() => handleMemberOnlyAccess('approval')}
                 className="flex items-center gap-2 relative"
               >
                 <BookOpen className="size-4" />
@@ -162,7 +168,6 @@ export default function Home() {
             {user?.role === 'librarian' && (
               <TabsTrigger 
                 value="librarian"
-                onClick={() => handleMemberOnlyAccess('librarian')}
                 className="flex items-center gap-2"
               >
                 <Settings className="size-4" />
@@ -179,13 +184,13 @@ export default function Home() {
             <SearchDiscovery />
           </TabsContent>
 
-          {isAuthenticated && (
+          {isAuthenticated && user?.role !== 'guest' && (
             <TabsContent value="dashboard">
               <Dashboard userRole={user?.role || 'member'} />
             </TabsContent>
           )}
 
-          {isAuthenticated && (
+          {isAuthenticated && user?.role !== 'guest' && (
             <TabsContent value="upload">
               <DocumentUpload />
             </TabsContent>
@@ -212,7 +217,7 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {isAuthenticated && (
+          {isAuthenticated && user?.role !== 'guest' && (
             <TabsContent value="profile">
               <Profile />
             </TabsContent>
