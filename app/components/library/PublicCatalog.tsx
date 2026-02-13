@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
@@ -7,14 +7,24 @@ import { Input } from '../ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { useAuth } from '../../context/AuthContext'
 import { Bookmark, Download, Eye, Grid3x3, List, Search, Star, TrendingUp } from 'lucide-react'
-import { mockPapers } from '../../lib/mockPapers'
+import { apiDownloadPaperFile, apiListPapers } from '../../lib/api'
+import type { ApiPaper } from '../../lib/api'
+
+const ACCESS_TOKEN_KEY = 'murrs_access_token'
 
 const categories = [
-  { id: 'all', label: 'All Papers', count: 9 },
-  { id: 'trending', label: 'Trending', count: 3, icon: TrendingUp },
-  { id: 'highest-rated', label: 'Highest Rated', count: 4 },
-  { id: 'most-downloaded', label: 'Most Downloaded', count: 5 },
+  { id: 'all', label: 'All Papers' },
+  { id: 'trending', label: 'Trending', icon: TrendingUp },
+  { id: 'highest-rated', label: 'Highest Rated' },
+  { id: 'most-downloaded', label: 'Most Downloaded' },
 ]
+
+const sortByCategory: Record<string, string> = {
+  all: 'relevance',
+  trending: 'trending',
+  'highest-rated': 'highest-rated',
+  'most-downloaded': 'downloads',
+}
 
 export function PublicCatalog() {
   const navigate = useNavigate()
@@ -23,67 +33,100 @@ export function PublicCatalog() {
   const [bookmarked, setBookmarked] = useState<Set<number>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
+  const [papers, setPapers] = useState<ApiPaper[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleDownload = (paperId: number) => {
-    // Guests and unauthenticated users cannot download
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const results = await apiListPapers({
+          q: searchQuery || undefined,
+          sort: sortByCategory[activeCategory] || 'relevance',
+          catalog: true,
+          limit: 200,
+        })
+        if (!cancelled) setPapers(results)
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load papers')
+          setPapers([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [searchQuery, activeCategory])
+
+  const handleDownload = async (paperId: number) => {
     if (!isAuthenticated || user?.role === 'guest') {
       navigate('/login')
       return
     }
-    // Handle download logic here
-    alert(`Downloaded paper ${paperId}`)
-  }
-
-  const filteredPapers = mockPapers.filter(paper =>
-    paper.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    paper.authors.some(a => a.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    paper.discipline.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  const categorizedPapers = (() => {
-    switch (activeCategory) {
-      case 'trending':
-        return filteredPapers.filter(p => p.views > 2500)
-      case 'highest-rated':
-        return filteredPapers.sort((a, b) => b.rating - a.rating).slice(0, 4)
-      case 'most-downloaded':
-        return filteredPapers.sort((a, b) => b.downloads - a.downloads).slice(0, 5)
-      default:
-        return filteredPapers
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY)
+    if (!token) {
+      navigate('/login')
+      return
     }
-  })()
+    try {
+      const { blob, filename } = await apiDownloadPaperFile(paperId, token)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setPapers((prev) => prev.map((p) => (p.id === paperId ? { ...p, downloads: p.downloads + 1 } : p)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download file')
+    }
+  }
 
   const toggleBookmark = (id: number) => {
-    const newBookmarked = new Set(bookmarked)
-    if (newBookmarked.has(id)) newBookmarked.delete(id)
-    else newBookmarked.add(id)
-    setBookmarked(newBookmarked)
+    const next = new Set(bookmarked)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setBookmarked(next)
   }
 
-  const PaperCard = ({ paper, variant = 'default' }: { paper: typeof mockPapers[0]; variant?: 'default' | 'featured' }) => (
-    <Card className={`hover:shadow-lg transition-all ${variant === 'featured' ? 'border-primary' : ''}`}>
-      {variant === 'featured' && (
-        <div className="bg-primary h-1"></div>
-      )}
+  const categoryCounts = useMemo(() => {
+    const all = papers.length
+    const trending = papers.filter((p) => p.views > 2500).length
+    const highest = Math.min(4, papers.length)
+    const downloads = Math.min(5, papers.length)
+    return { all, trending, highest, downloads }
+  }, [papers])
+
+  const PaperCard = ({ paper }: { paper: ApiPaper }) => (
+    <Card className="hover:shadow-lg transition-all">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
             <CardTitle className="text-base line-clamp-2 hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</CardTitle>
-            <CardDescription className="text-xs mt-1">{paper.authors.join(', ')}</CardDescription>
+            <CardDescription className="text-xs mt-1">{paper.authors.map((a) => a.name).join(', ') || 'Unknown Author'}</CardDescription>
           </div>
           <div className="flex items-center gap-1 text-yellow-500 flex-shrink-0">
             <Star className="h-4 w-4 fill-yellow-500" />
-            <span className="text-xs font-semibold">{paper.rating}</span>
+            <span className="text-xs font-semibold">{(paper.rating ?? 0).toFixed(1)}</span>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground line-clamp-2">{paper.abstract}</p>
+        <p className="text-xs text-muted-foreground line-clamp-2">{paper.abstract || 'No abstract available.'}</p>
 
         <div className="flex gap-1 flex-wrap">
           <Badge variant="outline" className="text-xs">{paper.year}</Badge>
-          <Badge variant="outline" className="text-xs">{paper.discipline}</Badge>
-          <Badge variant="secondary" className="text-xs">{paper.university}</Badge>
+          <Badge variant="outline" className="text-xs">{paper.discipline || 'General'}</Badge>
+          <Badge variant="secondary" className="text-xs">{paper.university || 'Unknown'}</Badge>
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-xs">
@@ -101,11 +144,11 @@ export function PublicCatalog() {
         </div>
 
         <div className="flex gap-2 pt-2">
-          <Button 
-            size="sm" 
-            variant="outline" 
+          <Button
+            size="sm"
+            variant="outline"
             className="flex-1"
-            onClick={() => handleDownload(paper.id)}
+            onClick={() => void handleDownload(paper.id)}
             disabled={!isAuthenticated || user?.role === 'guest'}
           >
             <Download className="h-3 w-3 mr-1" />
@@ -126,7 +169,6 @@ export function PublicCatalog() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-bold">Public Catalog</h2>
@@ -142,7 +184,6 @@ export function PublicCatalog() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
         <Input
@@ -153,18 +194,31 @@ export function PublicCatalog() {
         />
       </div>
 
-      {/* Categories/Tabs */}
       <Tabs value={activeCategory} onValueChange={setActiveCategory} defaultValue="all">
         <TabsList className="grid w-full grid-cols-4">
-          {categories.map(cat => (
+          {categories.map((cat) => (
             <TabsTrigger key={cat.id} value={cat.id}>
-              <span className="text-xs sm:text-sm">{cat.label}</span>
+              <span className="text-xs sm:text-sm">
+                {cat.label}
+                {cat.id === 'all' && ` (${categoryCounts.all})`}
+                {cat.id === 'trending' && ` (${categoryCounts.trending})`}
+                {cat.id === 'highest-rated' && ` (${categoryCounts.highest})`}
+                {cat.id === 'most-downloaded' && ` (${categoryCounts.downloads})`}
+              </span>
             </TabsTrigger>
           ))}
         </TabsList>
 
         <TabsContent value={activeCategory} className="space-y-4">
-          {categorizedPapers.length === 0 ? (
+          {loading ? (
+            <Card>
+              <CardContent className="pt-6 text-center text-muted-foreground">Loading papers...</CardContent>
+            </Card>
+          ) : error ? (
+            <Card>
+              <CardContent className="pt-6 text-center text-destructive">{error}</CardContent>
+            </Card>
+          ) : papers.length === 0 ? (
             <Card>
               <CardContent className="pt-6 text-center text-muted-foreground">
                 <p>No papers found matching your criteria</p>
@@ -172,13 +226,13 @@ export function PublicCatalog() {
             </Card>
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {categorizedPapers.map(paper => (
+              {papers.map((paper) => (
                 <PaperCard key={paper.id} paper={paper} />
               ))}
             </div>
           ) : (
             <div className="space-y-3">
-              {categorizedPapers.map((paper, idx) => (
+              {papers.map((paper, idx) => (
                 <Card key={paper.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="pt-6">
                     <div className="flex items-start gap-4 justify-between">
@@ -187,15 +241,15 @@ export function PublicCatalog() {
                           <span className="text-xs font-semibold text-muted-foreground">#{idx + 1}</span>
                           <h3 className="font-semibold hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</h3>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-2">{paper.authors.join(', ')}</p>
-                        <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{paper.abstract}</p>
+                        <p className="text-sm text-muted-foreground mb-2">{paper.authors.map((a) => a.name).join(', ') || 'Unknown Author'}</p>
+                        <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{paper.abstract || 'No abstract available.'}</p>
                         <div className="flex gap-2 items-center flex-wrap">
                           <Badge variant="outline" className="text-xs">{paper.year}</Badge>
-                          <Badge variant="outline" className="text-xs">{paper.discipline}</Badge>
-                          <Badge variant="secondary" className="text-xs">{paper.university}</Badge>
+                          <Badge variant="outline" className="text-xs">{paper.discipline || 'General'}</Badge>
+                          <Badge variant="secondary" className="text-xs">{paper.university || 'Unknown'}</Badge>
                           <div className="flex items-center gap-1 text-yellow-500 ml-auto">
                             <Star className="h-3 w-3 fill-yellow-500" />
-                            <span className="text-xs font-semibold">{paper.rating}</span>
+                            <span className="text-xs font-semibold">{(paper.rating ?? 0).toFixed(1)}</span>
                           </div>
                         </div>
                       </div>
@@ -210,10 +264,10 @@ export function PublicCatalog() {
                             {paper.downloads}
                           </div>
                         </div>
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           variant="outline"
-                          onClick={() => handleDownload(paper.id)}
+                          onClick={() => void handleDownload(paper.id)}
                           disabled={!isAuthenticated || user?.role === 'guest'}
                         >
                           <Download className="h-4 w-4" />

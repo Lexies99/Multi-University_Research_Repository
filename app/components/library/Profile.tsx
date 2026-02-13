@@ -22,7 +22,7 @@ export function Profile() {
   const [editSuccess, setEditSuccess] = useState('')
   const [passwordSuccess, setPasswordSuccess] = useState('')
 
-  const handleEditProfile = () => {
+  const handleEditProfile = async () => {
     setEditError('')
     setEditSuccess('')
 
@@ -31,7 +31,8 @@ export function Profile() {
       return
     }
 
-    if (updateProfile(editName, editDepartment)) {
+    const ok = await updateProfile(editName, editDepartment)
+    if (ok) {
       setEditSuccess('Profile updated successfully!')
       setEditDialogOpen(false)
       setTimeout(() => setEditSuccess(''), 3000)
@@ -40,7 +41,7 @@ export function Profile() {
     }
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     setPasswordError('')
     setPasswordSuccess('')
 
@@ -59,7 +60,8 @@ export function Profile() {
       return
     }
 
-    if (changePassword(oldPassword, newPassword)) {
+    const ok = await changePassword(oldPassword, newPassword)
+    if (ok) {
       setPasswordSuccess('Password changed successfully!')
       setOldPassword('')
       setNewPassword('')
@@ -87,8 +89,6 @@ export function Profile() {
     switch (role) {
       case 'librarian':
         return 'destructive'
-      case 'staff':
-        return 'secondary'
       default:
         return 'outline'
     }
@@ -98,6 +98,8 @@ export function Profile() {
     switch (role) {
       case 'member':
         return 'Student'
+      case 'lecturer':
+        return 'Lecturer'
       case 'staff':
         return 'Staff'
       case 'librarian':
@@ -192,11 +194,9 @@ export function Profile() {
 
           <div className="flex gap-2 pt-4">
             <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="gap-2">
-                  <Edit2 className="h-4 w-4" />
-                  Edit Profile
-                </Button>
+              <DialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-4 py-2 gap-2">
+                <Edit2 className="h-4 w-4" />
+                Edit Profile
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -238,11 +238,9 @@ export function Profile() {
             </Dialog>
 
             <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <Lock className="h-4 w-4" />
-                  Change Password
-                </Button>
+              <DialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 gap-2">
+                <Lock className="h-4 w-4" />
+                Change Password
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>

@@ -1,9 +1,19 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
+import {
+  apiLogin,
+  apiLogout,
+  apiMe,
+  apiRefresh,
+  apiRegister,
+  apiUpdateUser,
+  type ApiUserRole,
+  type ApiUser,
+} from '../lib/api'
 
-export type UserRole = 'guest' | 'member' | 'staff' | 'librarian'
+export type UserRole = 'guest' | ApiUserRole
 
 export interface User {
-  id: string
+  id: number
   email: string
   name: string
   role: UserRole
@@ -14,111 +24,190 @@ export interface User {
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
-  login: (email: string, password: string, role: UserRole) => boolean
-  logout: () => void
-  createAccount: (email: string, password: string, name: string, role: 'member' | 'staff' | 'librarian') => boolean
+  login: (email: string, password: string, role: UserRole) => Promise<boolean>
+  logout: () => Promise<void>
+  createAccount: (email: string, password: string, name: string, role: ApiUserRole) => Promise<boolean>
   setUser: (user: User | null) => void
-  changePassword: (oldPassword: string, newPassword: string) => boolean
-  updateProfile: (name: string, department?: string) => boolean
+  changePassword: (oldPassword: string, newPassword: string) => Promise<boolean>
+  updateProfile: (name: string, department?: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Test accounts for development
-const TEST_ACCOUNTS = {
-  member: [
-    { email: 'john.smith@student.edu', password: 'password123', name: 'John Smith', university: 'MIT', department: 'Computer Science' },
-    { email: 'sarah.jones@student.edu', password: 'password123', name: 'Sarah Jones', university: 'Harvard', department: 'Physics' },
-  ],
-  staff: [
-    { email: 'ama.owusu@university.edu', password: 'password123', name: 'Ama Owusu', university: 'Stanford', department: 'Library Services' },
-    { email: 'michael.brown@university.edu', password: 'password123', name: 'Michael Brown', university: 'Oxford', department: 'Research Administration' },
-  ],
-  librarian: [
-    { email: 'librarian@murrs.edu', password: 'librarian123', name: 'Librarian User', university: 'MURRS Central', department: 'Library Administration' },
-  ],
-}
+const ACCESS_TOKEN_KEY = 'murrs_access_token'
+const REFRESH_TOKEN_KEY = 'murrs_refresh_token'
+const USER_KEY = 'murrs_user'
+
+const roleFromApiUser = (user: ApiUser): UserRole => user.role || (user.is_admin ? 'librarian' : 'member')
+
+const buildUser = (apiUser: ApiUser, extras?: Partial<User>): User => ({
+  id: apiUser.id,
+  email: apiUser.email,
+  name: apiUser.full_name || apiUser.email.split('@')[0],
+  role: roleFromApiUser(apiUser),
+  university: extras?.university,
+  department: apiUser.department || extras?.department,
+})
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('murrs_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setUser(parsed);
-      }
-    } catch {}
-  }, []);
+    const restore = async () => {
+      const storedUser = localStorage.getItem(USER_KEY)
+      const storedAccess = localStorage.getItem(ACCESS_TOKEN_KEY)
+      const storedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY)
 
-  const login = (email: string, password: string, role: UserRole): boolean => {
+      if (!storedAccess || !storedUser) return
+
+      try {
+        const parsed = JSON.parse(storedUser) as User
+        const apiUser = await apiMe(storedAccess)
+        const rebuilt = buildUser(apiUser, parsed)
+        setUser(rebuilt)
+        localStorage.setItem(USER_KEY, JSON.stringify(rebuilt))
+      } catch {
+        if (!storedRefresh) {
+          setUser(null)
+          localStorage.removeItem(USER_KEY)
+          localStorage.removeItem(ACCESS_TOKEN_KEY)
+          return
+        }
+        try {
+          const refreshed = await apiRefresh(storedRefresh)
+          localStorage.setItem(ACCESS_TOKEN_KEY, refreshed.access_token)
+          localStorage.setItem(REFRESH_TOKEN_KEY, refreshed.refresh_token)
+          const apiUser = await apiMe(refreshed.access_token)
+          const rebuilt = buildUser(apiUser)
+          setUser(rebuilt)
+          localStorage.setItem(USER_KEY, JSON.stringify(rebuilt))
+        } catch {
+          setUser(null)
+          localStorage.removeItem(USER_KEY)
+          localStorage.removeItem(ACCESS_TOKEN_KEY)
+          localStorage.removeItem(REFRESH_TOKEN_KEY)
+        }
+      }
+    }
+
+    restore()
+  }, [])
+
+  const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
     if (!email || !password) return false
 
-    // Check test accounts
-    const accounts = TEST_ACCOUNTS[role as keyof typeof TEST_ACCOUNTS] || []
-    const account = accounts.find(acc => acc.email === email && acc.password === password)
-
-    if (account) {
-      const newUser: User = {
-        id: `user_${Date.now()}`,
-        email: account.email,
-        name: account.name,
-        role,
-        university: account.university,
-        department: account.department,
+    if (role === 'guest') {
+      localStorage.removeItem(ACCESS_TOKEN_KEY)
+      localStorage.removeItem(REFRESH_TOKEN_KEY)
+      const guest: User = {
+        id: Date.now(),
+        email,
+        name: 'Guest',
+        role: 'guest',
       }
-      setUser(newUser)
-      localStorage.setItem('murrs_user', JSON.stringify(newUser))
+      setUser(guest)
+      localStorage.setItem(USER_KEY, JSON.stringify(guest))
       return true
     }
 
-    // Fallback mock authentication for any email/password
-    const newUser: User = {
-      id: `user_${Date.now()}`,
-      email,
-      name: email.split('@')[0],
-      role,
-      university: 'MURRS University',
-      department: role === 'member' ? 'Computer Science' : 'Library Administration',
+    try {
+      const tokens = await apiLogin(email, password)
+      localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token)
+      localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
+
+      const apiUser = await apiMe(tokens.access_token)
+      const nextUser = buildUser(apiUser)
+      setUser(nextUser)
+      localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+      return true
+    } catch {
+      return false
     }
-
-    setUser(newUser)
-    localStorage.setItem('murrs_user', JSON.stringify(newUser))
-    return true
   }
 
-  const logout = () => {
+  const logout = async () => {
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+    if (refreshToken) {
+      try {
+        await apiLogout(refreshToken)
+      } catch {}
+    }
     setUser(null)
-    localStorage.removeItem('murrs_user')
+    localStorage.removeItem(USER_KEY)
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
   }
 
-  const createAccount = (email: string, password: string, name: string, role: 'member' | 'staff' | 'librarian'): boolean => {
-    if (!email || !password || !name || user?.role !== 'librarian') return false
+  const createAccount = async (
+    email: string,
+    password: string,
+    name: string,
+    role: ApiUserRole,
+  ): Promise<boolean> => {
+    if (!email || !password || !name) return false
+    if (role === 'librarian' && user?.role !== 'librarian') return false
 
-    // In a real app, this would save to database
-    return true
+    try {
+      await apiRegister(email, password, name)
+      return await login(email, password, role)
+    } catch {
+      return false
+    }
   }
 
-  const changePassword = (oldPassword: string, newPassword: string): boolean => {
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<boolean> => {
     if (!user || !oldPassword || !newPassword) return false
     if (oldPassword === newPassword) return false
-    // Mock: assume success. In a real app, call API and update stored credentials.
-    return true
+
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+    if (!accessToken) return false
+
+    try {
+      await apiUpdateUser(user.id, { password: newPassword }, accessToken)
+      return true
+    } catch {
+      if (!refreshToken) return false
+      try {
+        const tokens = await apiRefresh(refreshToken)
+        localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token)
+        localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
+        await apiUpdateUser(user.id, { password: newPassword }, tokens.access_token)
+        return true
+      } catch {
+        return false
+      }
+    }
   }
 
-  const updateProfile = (name: string, department?: string): boolean => {
+  const updateProfile = async (name: string, department?: string): Promise<boolean> => {
     if (!user || !name) return false
 
-    const updatedUser: User = {
-      ...user,
-      name,
-      department: department || user.department,
-    }
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+    if (!accessToken) return false
 
-    setUser(updatedUser)
-    localStorage.setItem('murrs_user', JSON.stringify(updatedUser))
-    return true
+    try {
+      const apiUser = await apiUpdateUser(user.id, { full_name: name, department }, accessToken)
+      const updated: User = { ...buildUser(apiUser), department: department || user.department, university: user.university }
+      setUser(updated)
+      localStorage.setItem(USER_KEY, JSON.stringify(updated))
+      return true
+    } catch {
+      if (!refreshToken) return false
+      try {
+        const tokens = await apiRefresh(refreshToken)
+        localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token)
+        localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
+        const apiUser = await apiUpdateUser(user.id, { full_name: name, department }, tokens.access_token)
+        const updated: User = { ...buildUser(apiUser), department: department || user.department, university: user.university }
+        setUser(updated)
+        localStorage.setItem(USER_KEY, JSON.stringify(updated))
+        return true
+      } catch {
+        return false
+      }
+    }
   }
 
   return (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { Route } from "./+types/home";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -12,9 +12,10 @@ import { Dashboard } from '../components/library/Dashboard';
 import { AccountManagement } from '../components/library/AccountManagement';
 import { Profile } from '../components/library/Profile';
 import { useAuth } from '../context/AuthContext';
-import { Book, Users, BookOpen, Settings, BarChart3, Library, Upload, Search, LogOut, User } from 'lucide-react';
+import { Book, Users, BookOpen, Settings, BarChart3, Library, Upload, Search, LogOut, User, Bell } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { apiGetPaperStats, apiGetNotifications, apiMarkNotificationRead, type ApiNotification } from '../lib/api';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -27,6 +28,10 @@ export default function Home() {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('catalog');
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const isReviewer = user?.role === 'librarian' || user?.role === 'lecturer' || user?.role === 'staff'
 
   const handleTabChange = (tab: string) => {
     const publicTabs = new Set(['catalog', 'search']);
@@ -41,13 +46,57 @@ export default function Home() {
     }
 
     // Role-based guards for authenticated non-guest users
-    if (tab === 'approval' && !(user?.role === 'staff' || user?.role === 'librarian')) return;
+    if (tab === 'approval' && !isReviewer) return;
     if (tab === 'librarian' && user?.role !== 'librarian') return;
 
     setActiveTab(tab);
   };
 
-  const overdueCount = 8;
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!isReviewer) return
+      try {
+        const stats = await apiGetPaperStats()
+        if (!cancelled) setOverdueCount(stats.pending_reviews)
+      } catch {
+        if (!cancelled) setOverdueCount(0)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [isReviewer])
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const token = localStorage.getItem('murrs_access_token')
+      if (!token || !isAuthenticated || user?.role === 'guest') return
+      try {
+        const items = await apiGetNotifications(token)
+        if (!cancelled) setNotifications(items)
+      } catch {
+        if (!cancelled) setNotifications([])
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, user?.role, activeTab])
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const handleNotificationClick = async (id: number) => {
+    const token = localStorage.getItem('murrs_access_token')
+    if (!token) return
+    try {
+      const updated = await apiMarkNotificationRead(id, token)
+      setNotifications((prev) => prev.map((n) => (n.id === id ? updated : n)))
+    } catch {}
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,9 +114,45 @@ export default function Home() {
             <div className="flex items-center gap-4">
               {user && isAuthenticated ? (
                 <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="relative"
+                      onClick={() => setShowNotifications((prev) => !prev)}
+                    >
+                      <Bell className="size-4" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-destructive text-white text-[10px] px-1 rounded-full">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </Button>
+                    {showNotifications && (
+                      <div className="absolute right-0 mt-2 w-96 max-h-80 overflow-y-auto rounded-md border bg-card shadow-lg z-50 p-2">
+                        <p className="text-xs font-semibold px-2 py-1">Notifications</p>
+                        {notifications.length === 0 ? (
+                          <p className="text-xs text-muted-foreground px-2 py-2">No notifications yet.</p>
+                        ) : (
+                          notifications.map((n) => (
+                            <button
+                              key={n.id}
+                              onClick={() => void handleNotificationClick(n.id)}
+                              className={`w-full text-left px-2 py-2 rounded text-xs ${n.is_read ? 'text-muted-foreground' : 'bg-muted/60'}`}
+                            >
+                              <p>{n.message}</p>
+                              <p className="text-[10px] mt-1">{n.created_at ? new Date(n.created_at).toLocaleString() : ''}</p>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div className="text-right">
                     <p className="text-sm font-medium">{user.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{user.role === 'member' ? 'Student' : user.role}</p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {user.role === 'member' ? 'Student' : user.role === 'lecturer' ? 'Lecturer' : user.role === 'staff' ? 'Staff' : user.role}
+                    </p>
                     {user.university && (
                       <p className="text-xs text-muted-foreground">{user.university}</p>
                     )}
@@ -75,8 +160,8 @@ export default function Home() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      logout();
+                    onClick={async () => {
+                      await logout();
                       navigate('/login');
                     }}
                     className="flex items-center gap-2"
@@ -106,7 +191,7 @@ export default function Home() {
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className={`grid w-full mb-6 ${
             user?.role === 'librarian' ? 'grid-cols-7' :
-            user?.role === 'staff' ? 'grid-cols-6' :
+            isReviewer ? 'grid-cols-6' :
             user?.role === 'member' ? 'grid-cols-5' :
             'grid-cols-2'
           }`}>
@@ -150,7 +235,7 @@ export default function Home() {
               </TabsTrigger>
             )}
 
-            {(user?.role === 'staff' || user?.role === 'librarian') && (
+            {isReviewer && (
               <TabsTrigger 
                 value="approval"
                 className="flex items-center gap-2 relative"
@@ -196,7 +281,7 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {(user?.role === 'staff' || user?.role === 'librarian') && (
+          {isReviewer && (
             <TabsContent value="approval">
               <ApprovalWorkflow />
             </TabsContent>

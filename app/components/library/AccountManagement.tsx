@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardDescription, CardHeader } from '../ui/card'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
@@ -7,107 +7,153 @@ import { Badge } from '../ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { useAuth } from '../../context/AuthContext'
+import { apiDeleteUser, apiListUsers, apiRegister, apiUpdateUserRole, type ApiUser, type ApiUserRole } from '../../lib/api'
 import { Users, UserPlus, Trash2, CheckCircle, Lock } from 'lucide-react'
 
-interface CreatedAccount {
-  id: string
+interface ManagedAccount {
+  id: number
   email: string
   name: string
-  role: 'member' | 'staff' | 'librarian'
-  createdDate: string
-  university: string
-  department: string
+  role: ApiUserRole
+  isActive: boolean
+}
+
+const ACCESS_TOKEN_KEY = 'murrs_access_token'
+
+function mapApiUser(user: ApiUser): ManagedAccount {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.full_name || user.email.split('@')[0],
+    role: user.role || (user.is_admin ? 'librarian' : 'member'),
+    isActive: user.is_active,
+  }
+}
+
+function extractErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return 'Request failed'
+  try {
+    const parsed = JSON.parse(err.message) as { detail?: string }
+    return parsed.detail || err.message
+  } catch {
+    return err.message
+  }
 }
 
 export function AccountManagement() {
   const { user } = useAuth()
-  const [accounts, setAccounts] = useState<CreatedAccount[]>([
-    {
-      id: '1',
-      email: 'john.student@university.edu',
-      name: 'John Student',
-      role: 'member',
-      createdDate: '2024-12-20',
-      university: 'MIT',
-      department: 'Computer Science',
-    },
-    {
-      id: '2',
-      email: 'staff.member@university.edu',
-      name: 'Staff Member',
-      role: 'staff',
-      createdDate: '2024-12-18',
-      university: 'Harvard',
-      department: 'Library Services',
-    },
-  ])
-
+  const [accounts, setAccounts] = useState<ManagedAccount[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingError, setLoadingError] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newName, setNewName] = useState('')
   const [newDepartment, setNewDepartment] = useState('')
-  const [newRole, setNewRole] = useState<'member' | 'staff' | 'librarian'>('member')
+  const [newRole, setNewRole] = useState<ApiUserRole>('member')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [error, setError] = useState('')
+  const [createError, setCreateError] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const handleCreateAccount = () => {
-    setError('')
-
-    if (!newEmail || !newName || !newDepartment || !newPassword) {
-      setError('Please fill in all fields')
+  const loadAccounts = async () => {
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+    if (!accessToken) {
+      setLoadingError('Missing session token. Please sign in again.')
+      setLoading(false)
       return
     }
 
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match')
-      return
+    setLoading(true)
+    setLoadingError('')
+    try {
+      const users = await apiListUsers(accessToken, { limit: 200 })
+      setAccounts(users.map(mapApiUser))
+    } catch (err) {
+      setLoadingError(extractErrorMessage(err))
+    } finally {
+      setLoading(false)
     }
+  }
 
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters')
-      return
+  useEffect(() => {
+    if (user?.role === 'librarian') {
+      void loadAccounts()
     }
+  }, [user?.role])
 
-    if (!newEmail.includes('@')) {
-      setError('Please enter a valid email')
-      return
-    }
-
-    if (accounts.some(a => a.email === newEmail)) {
-      setError('Email already exists')
-      return
-    }
-
-    // Random university
-    const universities = ['MIT', 'Harvard', 'Stanford', 'Oxford', 'Cambridge', 'UC Berkeley']
-    const randomUniversity = universities[Math.floor(Math.random() * universities.length)]
-
-    const newAccount: CreatedAccount = {
-      id: `acc_${Date.now()}`,
-      email: newEmail,
-      name: newName,
-      role: newRole,
-      createdDate: new Date().toISOString().split('T')[0],
-      university: randomUniversity,
-      department: newDepartment,
-    }
-
-    setAccounts([...accounts, newAccount])
+  const resetCreateForm = () => {
     setNewEmail('')
     setNewName('')
     setNewDepartment('')
     setNewPassword('')
     setConfirmPassword('')
     setNewRole('member')
-    setDialogOpen(false)
+    setCreateError('')
   }
 
-  const handleDeleteAccount = (id: string) => {
-    setAccounts(accounts.filter(a => a.id !== id))
+  const handleCreateAccount = async () => {
+    setCreateError('')
+
+    if (!newEmail || !newName || !newPassword) {
+      setCreateError('Please fill in all fields')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setCreateError('Passwords do not match')
+      return
+    }
+
+    if (newPassword.length < 6) {
+      setCreateError('Password must be at least 6 characters')
+      return
+    }
+
+    if (!newEmail.includes('@')) {
+      setCreateError('Please enter a valid email')
+      return
+    }
+
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+    if (!accessToken) {
+      setCreateError('Missing session token. Please sign in again.')
+      return
+    }
+
+    setCreating(true)
+    try {
+      const created = await apiRegister(newEmail.trim(), newPassword, newName.trim(), newDepartment.trim() || undefined)
+      const finalUser = newRole !== 'member'
+        ? await apiUpdateUserRole(created.id, newRole, accessToken)
+        : created
+      setAccounts((prev) => [mapApiUser(finalUser), ...prev])
+      resetCreateForm()
+      setDialogOpen(false)
+    } catch (err) {
+      setCreateError(extractErrorMessage(err))
+    } finally {
+      setCreating(false)
+    }
   }
 
-  // Only librarian can access this
+  const handleDeleteAccount = async (id: number) => {
+    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY)
+    if (!accessToken) {
+      setLoadingError('Missing session token. Please sign in again.')
+      return
+    }
+    setDeletingId(id)
+    try {
+      await apiDeleteUser(id, accessToken)
+      setAccounts((prev) => prev.filter((a) => a.id !== id))
+    } catch (err) {
+      setLoadingError(extractErrorMessage(err))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   if (user?.role !== 'librarian') {
     return (
       <div className="space-y-6">
@@ -132,23 +178,21 @@ export function AccountManagement() {
             <Users className="h-6 w-6" />
             Account Management
           </h2>
-          <p className="text-muted-foreground mt-1">Create and manage member and staff accounts</p>
+          <p className="text-muted-foreground mt-1">Create and manage student, lecturer, staff, and librarian accounts</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              Create Account
-            </Button>
+          <DialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-4 py-2 gap-2">
+            <UserPlus className="h-4 w-4" />
+            Create Account
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Account</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {error && (
+              {createError && (
                 <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
-                  {error}
+                  {createError}
                 </div>
               )}
 
@@ -179,7 +223,7 @@ export function AccountManagement() {
                 <Label htmlFor="department">Department</Label>
                 <Input
                   id="department"
-                  placeholder="e.g., Computer Science"
+                  placeholder="e.g. Computer Science"
                   value={newDepartment}
                   onChange={(e) => setNewDepartment(e.target.value)}
                   className="mt-1"
@@ -188,12 +232,13 @@ export function AccountManagement() {
 
               <div>
                 <Label htmlFor="role">Account Type</Label>
-                <Select value={newRole} onValueChange={(val) => setNewRole(val as 'member' | 'staff' | 'librarian')}>
+                <Select value={newRole} onValueChange={(val) => setNewRole(val as ApiUserRole)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select account type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="member">Member (Student)</SelectItem>
+                    <SelectItem value="lecturer">Lecturer</SelectItem>
                     <SelectItem value="staff">Staff</SelectItem>
                     <SelectItem value="librarian">Librarian</SelectItem>
                   </SelectContent>
@@ -224,18 +269,28 @@ export function AccountManagement() {
                 />
               </div>
 
-              <Button onClick={handleCreateAccount} className="w-full">
+              <Button onClick={handleCreateAccount} className="w-full" disabled={creating}>
                 <UserPlus className="h-4 w-4 mr-2" />
-                Create Account
+                {creating ? 'Creating...' : 'Create Account'}
               </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
+      {loadingError && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="pt-6 text-sm text-destructive">{loadingError}</CardContent>
+        </Card>
+      )}
+
       {/* Accounts List */}
       <div className="space-y-3">
-        {accounts.length === 0 ? (
+        {loading ? (
+          <Card>
+            <CardContent className="pt-6 text-center text-muted-foreground">Loading accounts...</CardContent>
+          </Card>
+        ) : accounts.length === 0 ? (
           <Card>
             <CardContent className="pt-6 text-center text-muted-foreground">
               No accounts created yet
@@ -250,24 +305,23 @@ export function AccountManagement() {
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="font-semibold">{account.name}</h3>
                       <Badge variant={account.role === 'member' ? 'outline' : 'secondary'}>
-                        {account.role === 'member' ? 'Student' : 'Staff'}
+                        {account.role === 'member' ? 'Student' : account.role === 'lecturer' ? 'Lecturer' : account.role === 'staff' ? 'Staff' : 'Librarian'}
                       </Badge>
-                      <Badge variant="outline" className="text-green-700 bg-green-50 dark:bg-green-900/20">
+                      <Badge variant="outline" className={account.isActive ? 'text-green-700 bg-green-50 dark:bg-green-900/20' : ''}>
                         <CheckCircle className="h-3 w-3 mr-1" />
-                        Active
+                        {account.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground mb-2">{account.email}</p>
                     <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span>🏫 {account.department}</span>
-                      <span>📍 {account.university}</span>
-                      <span>📅 Created {account.createdDate}</span>
+                      <span>ID {account.id}</span>
                     </div>
                   </div>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => handleDeleteAccount(account.id)}
+                    onClick={() => void handleDeleteAccount(account.id)}
+                    disabled={deletingId === account.id}
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -280,7 +334,7 @@ export function AccountManagement() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Accounts</CardDescription>
@@ -299,10 +353,26 @@ export function AccountManagement() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
+            <CardDescription>Lecturers</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{accounts.filter(a => a.role === 'lecturer').length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
             <CardDescription>Staff</CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{accounts.filter(a => a.role === 'staff').length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Librarians</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{accounts.filter(a => a.role === 'librarian').length}</p>
           </CardContent>
         </Card>
       </div>

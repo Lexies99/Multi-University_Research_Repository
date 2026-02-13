@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -9,8 +9,11 @@ import { Upload, FileText, X, Plus } from 'lucide-react';
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 import { Checkbox } from '../ui/checkbox';
+import { apiListSupervisors, apiUploadPaper, type ApiUser } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 export function DocumentUpload() {
+  const { user } = useAuth()
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -23,6 +26,27 @@ export function DocumentUpload() {
     documentType: '',
     license: '',
   });
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [supervisors, setSupervisors] = useState<ApiUser[]>([]);
+  const [supervisorId, setSupervisorId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false
+    const loadSupervisors = async () => {
+      const accessToken = localStorage.getItem('murrs_access_token')
+      if (!accessToken || user?.role !== 'member') return
+      try {
+        const items = await apiListSupervisors(accessToken)
+        if (!cancelled) setSupervisors(items)
+      } catch {
+        if (!cancelled) setSupervisors([])
+      }
+    }
+    void loadSupervisors()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.role])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -43,34 +67,65 @@ export function DocumentUpload() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitMessage('');
+    const accessToken = localStorage.getItem('murrs_access_token');
+    if (!accessToken) {
+      setSubmitMessage('Please sign in to upload a paper.');
+      return;
+    }
+    if (!selectedFile) {
+      setSubmitMessage('Please attach a file before submitting.');
+      return;
+    }
+    if (user?.role === 'member' && !supervisorId) {
+      setSubmitMessage('Please assign a supervisor before submitting.');
+      return;
+    }
     setIsUploading(true);
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setUploadProgress(progress);
-      
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => {
-          setIsUploading(false);
-          alert('Paper submitted successfully! Tracking ID: MURRS-2024-1234');
-          setSelectedFile(null);
-          setUploadProgress(0);
-          setFormData({
-            title: '',
-            abstract: '',
-            keywords: '',
-            discipline: '',
-            documentType: '',
-            license: '',
-          });
-          setAuthors([{ name: '', affiliation: '', email: '' }]);
-        }, 500);
-      }
-    }, 200);
+    setUploadProgress(25);
+
+    try {
+      const created = await apiUploadPaper(
+        {
+          title: formData.title,
+          abstract: formData.abstract,
+          discipline: formData.discipline,
+          university: authors[0]?.affiliation || 'Independent',
+          document_type: formData.documentType,
+          license: formData.license,
+          file: selectedFile,
+          tags: formData.keywords.split(',').map((k) => k.trim()).filter(Boolean),
+          authors: authors.map((a) => ({
+            name: a.name,
+            affiliation: a.affiliation || undefined,
+            email: a.email || undefined,
+          })),
+          supervisor_id: supervisorId ? Number(supervisorId) : undefined,
+        },
+        accessToken,
+      );
+
+      setUploadProgress(100);
+      setSubmitMessage(`Paper submitted successfully! ID: ${created.id} (status: ${created.status})`);
+      setSelectedFile(null);
+      setFormData({
+        title: '',
+        abstract: '',
+        keywords: '',
+        discipline: '',
+        documentType: '',
+        license: '',
+      });
+      setAuthors([{ name: '', affiliation: '', email: '' }]);
+      setSupervisorId('');
+    } catch (err) {
+      setSubmitMessage(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
   const addAuthor = () => {
@@ -91,6 +146,11 @@ export function DocumentUpload() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {submitMessage && (
+          <Card>
+            <CardContent className="pt-4 text-sm">{submitMessage}</CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>Document Upload</CardTitle>
@@ -158,6 +218,33 @@ export function DocumentUpload() {
             <CardTitle>Basic Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {user?.role === 'librarian' && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Supervisor filtering applies to member accounts.
+              </div>
+            )}
+            {user?.role === 'member' && (
+              <div>
+                <Label htmlFor="supervisor">Assign Supervisor *</Label>
+                <Select value={supervisorId} onValueChange={setSupervisorId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select supervisor for approval" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supervisors.length === 0 && (
+                      <SelectItem value="__none__" disabled>
+                        No lecturers found in your department
+                      </SelectItem>
+                    )}
+                    {supervisors.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.full_name || s.email} ({s.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label htmlFor="title">Title *</Label>
               <Input
@@ -192,11 +279,11 @@ export function DocumentUpload() {
                     <SelectValue placeholder="Select discipline" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="computer-science">Computer Science</SelectItem>
-                    <SelectItem value="engineering">Engineering</SelectItem>
-                    <SelectItem value="medicine">Medicine</SelectItem>
-                    <SelectItem value="physics">Physics</SelectItem>
-                    <SelectItem value="biology">Biology</SelectItem>
+                    <SelectItem value="Computer Science">Computer Science</SelectItem>
+                    <SelectItem value="Engineering">Engineering</SelectItem>
+                    <SelectItem value="Medicine">Medicine</SelectItem>
+                    <SelectItem value="Physics">Physics</SelectItem>
+                    <SelectItem value="Biology">Biology</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

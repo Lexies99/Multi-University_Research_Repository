@@ -1,18 +1,17 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { useAuth } from '../context/AuthContext'
 import { Download, Eye } from 'lucide-react'
-import { findPaperById } from '../lib/mockPapers'
-import type { Route } from "./+types/paper.$id"
+import { apiDownloadPaperFile, apiGetPaper, apiTrackPaperView } from '../lib/api'
+import type { ApiPaper } from '../lib/api'
 
-export const meta: Route.MetaFunction = ({ params }) => {
+export const meta = ({ params }: { params: { id?: string } }) => {
   const id = Number(params.id)
-  const paper = findPaperById(id)
-  const title = paper ? `${paper.title} – MURRS` : 'Paper – MURRS'
-  const description = paper ? `Read abstract: ${paper.abstract}` : 'Research paper details on MURRS'
+  const title = Number.isFinite(id) ? `Paper ${id} - MURRS` : 'Paper - MURRS'
+  const description = 'Research paper details on MURRS'
   return [
     { title },
     { name: 'description', content: description },
@@ -25,7 +24,9 @@ export default function PaperDetail() {
   const { user, isAuthenticated } = useAuth()
 
   const paperId = Number(id)
-  const paper = useMemo(() => findPaperById(paperId), [paperId])
+  const [paper, setPaper] = useState<ApiPaper | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [toast, setToast] = useState<string>('')
 
   useEffect(() => {
@@ -34,13 +35,52 @@ export default function PaperDetail() {
     return () => clearTimeout(t)
   }, [toast])
 
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      if (!Number.isFinite(paperId)) {
+        setError('Invalid paper id')
+        setLoading(false)
+        return
+      }
+      setLoading(true)
+      setError('')
+      try {
+        const data = await apiGetPaper(paperId)
+        if (cancelled) return
+        setPaper(data)
+        await apiTrackPaperView(paperId)
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load paper')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [paperId])
+
+  if (loading) {
+    return (
+      <main className="container mx-auto p-4">
+        <Card>
+          <CardContent className="pt-6 text-center text-muted-foreground">Loading paper...</CardContent>
+        </Card>
+      </main>
+    )
+  }
+
   if (!paper) {
     return (
       <main className="container mx-auto p-4">
         <Card>
           <CardHeader>
             <CardTitle>Paper not found</CardTitle>
-            <CardDescription>We couldn't find the paper you are looking for.</CardDescription>
+            <CardDescription>{error || "We couldn't find the paper you are looking for."}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => navigate('/')} variant="outline">Go back to Catalog</Button>
@@ -57,7 +97,27 @@ export default function PaperDetail() {
       navigate('/login')
       return
     }
-    setToast(`Downloading: ${paper.title}`)
+    const accessToken = localStorage.getItem('murrs_access_token')
+    if (!accessToken) {
+      navigate('/login')
+      return
+    }
+    void apiDownloadPaperFile(paper.id, accessToken)
+      .then(({ blob, filename }) => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+        setPaper((prev) => (prev ? { ...prev, downloads: prev.downloads + 1 } : prev))
+        setToast(`Downloading: ${paper.title}`)
+      })
+      .catch((err) => {
+        setToast(err instanceof Error ? err.message : 'Download failed')
+      })
   }
 
   const handleRead = () => {
@@ -82,7 +142,7 @@ export default function PaperDetail() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">{paper.title}</CardTitle>
-              <CardDescription className="text-sm">{paper.authors.join(', ')}</CardDescription>
+              <CardDescription className="text-sm">{paper.authors.map((a) => a.name).join(', ') || 'Unknown Author'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2 flex-wrap">
@@ -97,7 +157,7 @@ export default function PaperDetail() {
               </div>
               <div>
                 <h3 className="font-semibold mb-2">Abstract</h3>
-                <p className="text-sm text-muted-foreground">{paper.abstract}</p>
+                <p className="text-sm text-muted-foreground">{paper.abstract || 'No abstract available.'}</p>
               </div>
               <div className="flex gap-2">
                 <Button onClick={handleRead} disabled={isGuest}>Read Paper</Button>
@@ -107,7 +167,7 @@ export default function PaperDetail() {
               </div>
               {isGuest && (
                 <div className="p-3 bg-muted rounded text-sm">
-                  Sign in to read the full paper and download. <Button variant="link" className="px-1" onClick={() => navigate('/login')}>Login</Button>
+                  Sign in to read the full paper and download. <Button variant="ghost" className="px-1 h-auto" onClick={() => navigate('/login')}>Login</Button>
                 </div>
               )}
             </CardContent>
