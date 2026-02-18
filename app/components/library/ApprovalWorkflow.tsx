@@ -10,14 +10,14 @@ import { useAuth } from '../../context/AuthContext'
 import { CheckCircle, XCircle, Clock, FileText, Eye, MessageSquare, AlertCircle } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Label } from '../ui/label'
-import { apiDownloadPaperFile, apiGetPendingPapers, apiListPapers, apiReviewPaper } from '../../lib/api'
+import { apiDownloadPaperFile, apiGetPendingPapers, apiGetReviewedPapers, apiListPapers, apiReviewPaper } from '../../lib/api'
 import type { ApiPaper } from '../../lib/api'
 
 const ACCESS_TOKEN_KEY = 'murrs_access_token'
 
 export function ApprovalWorkflow() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [pendingSubmissions, setPendingSubmissions] = useState<ApiPaper[]>([])
   const [approvedPapers, setApprovedPapers] = useState<ApiPaper[]>([])
   const [revisionRequested, setRevisionRequested] = useState<ApiPaper[]>([])
@@ -27,6 +27,7 @@ export function ApprovalWorkflow() {
   const [reviewDecision, setReviewDecision] = useState('')
   const [reviewComments, setReviewComments] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const isLibrarian = user?.role === 'librarian'
 
   const loadAll = async () => {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY)
@@ -39,7 +40,7 @@ export function ApprovalWorkflow() {
     try {
       const [pending, approved, revision] = await Promise.all([
         apiGetPendingPapers(token),
-        apiListPapers({ status: 'approved', sort: 'newest', limit: 50 }),
+        apiGetReviewedPapers(token),
         apiListPapers({ status: 'revision', sort: 'newest', limit: 50 }),
       ])
       setPendingSubmissions(pending)
@@ -89,7 +90,8 @@ export function ApprovalWorkflow() {
       return
     }
     try {
-      await apiReviewPaper(selectedPaper.id, reviewDecision as 'approve' | 'revision' | 'reject', reviewComments, token)
+      const decisionForApi = (isLibrarian && reviewDecision === 'publish' ? 'approve' : reviewDecision) as 'approve' | 'revision' | 'reject'
+      await apiReviewPaper(selectedPaper.id, decisionForApi, reviewComments, token)
       setDialogOpen(false)
       setSelectedPaper(null)
       setReviewComments('')
@@ -165,7 +167,7 @@ export function ApprovalWorkflow() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <Badge variant="outline">PAPER-{paper.id}</Badge>
-                      <Badge>Pending</Badge>
+                      <Badge>{isLibrarian ? 'Ready to Publish' : 'Pending'}</Badge>
                     </div>
                     <CardTitle className="mb-2">{paper.title}</CardTitle>
                     <CardDescription>
@@ -186,7 +188,7 @@ export function ApprovalWorkflow() {
 
                   <Button variant="outline" className="w-full" onClick={() => openReviewDialog(paper)}>
                     <Eye className="size-4 mr-2" />
-                    Review Paper
+                    {isLibrarian ? 'Review & Publish' : 'Review Paper'}
                   </Button>
                 </div>
               </CardContent>
@@ -226,6 +228,11 @@ export function ApprovalWorkflow() {
         </TabsContent>
 
         <TabsContent value="revision" className="space-y-4">
+          <Card>
+            <CardContent className="pt-4 text-sm text-muted-foreground">
+              Revision requested items are waiting for the student to resubmit an updated version. Reviewers cannot approve these until resubmission.
+            </CardContent>
+          </Card>
           {revisionRequested.map((paper) => (
             <Card key={paper.id}>
               <CardHeader>
@@ -264,7 +271,9 @@ export function ApprovalWorkflow() {
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedPaper?.title || 'Review Paper'}</DialogTitle>
-            <DialogDescription>Review and provide feedback for this submission</DialogDescription>
+            <DialogDescription>
+              {isLibrarian ? 'Finalize publication for this submission' : 'Review and provide feedback for this submission'}
+            </DialogDescription>
           </DialogHeader>
 
           {selectedPaper && (
@@ -302,24 +311,34 @@ export function ApprovalWorkflow() {
 
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="decision">Review Decision</Label>
+                  <Label htmlFor="decision">{isLibrarian ? 'Publication Decision' : 'Review Decision'}</Label>
                   <Select value={reviewDecision} onValueChange={setReviewDecision}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select decision" />
+                      <SelectValue placeholder={isLibrarian ? 'Select publication action' : 'Select decision'} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="approve">Approve</SelectItem>
-                      <SelectItem value="revision">Request Revisions</SelectItem>
-                      <SelectItem value="reject">Reject</SelectItem>
+                      {isLibrarian ? (
+                        <>
+                          <SelectItem value="publish">Publish</SelectItem>
+                          <SelectItem value="revision">Request Revisions</SelectItem>
+                          <SelectItem value="reject">Reject</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="approve">Approve</SelectItem>
+                          <SelectItem value="revision">Request Revisions</SelectItem>
+                          <SelectItem value="reject">Reject</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div>
-                  <Label htmlFor="comments">Review Comments</Label>
+                  <Label htmlFor="comments">{isLibrarian ? 'Publication Notes' : 'Review Comments'}</Label>
                   <Textarea
                     id="comments"
-                    placeholder="Provide detailed feedback for the author..."
+                    placeholder={isLibrarian ? 'Optional notes for the author regarding publication...' : 'Provide detailed feedback for the author...'}
                     rows={6}
                     value={reviewComments}
                     onChange={(e) => setReviewComments(e.target.value)}
@@ -331,7 +350,7 @@ export function ApprovalWorkflow() {
                     Cancel
                   </Button>
                   <Button onClick={() => void handleReview()} disabled={!reviewDecision}>
-                    Submit Review
+                    {isLibrarian ? 'Publish Work' : 'Submit Review'}
                   </Button>
                 </div>
               </div>

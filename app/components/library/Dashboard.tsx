@@ -9,7 +9,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ userRole }: DashboardProps) {
-  const canReview = userRole === 'librarian' || userRole === 'lecturer' || userRole === 'staff'
+  const canReview = userRole === 'librarian' || userRole === 'project_coordinator' || userRole === 'hod' || userRole === 'lecturer'
   const [stats, setStats] = useState<ApiPaperStats | null>(null)
   const [recent, setRecent] = useState<Array<{ action: string; title: string; time: string; status: string }>>([])
   const [myPapers, setMyPapers] = useState<ApiPaper[]>([])
@@ -117,7 +117,7 @@ export function Dashboard({ userRole }: DashboardProps) {
         </CardContent>
       </Card>
 
-      {userRole === 'member' && (
+      {(userRole === 'member' || userRole === 'student') && (
         <Card>
           <CardHeader>
             <CardTitle>My Submissions</CardTitle>

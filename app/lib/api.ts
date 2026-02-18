@@ -9,16 +9,19 @@ export interface TokenResponse {
   token_type: string
 }
 
-export type ApiUserRole = "member" | "lecturer" | "staff" | "librarian"
+export type ApiUserRole = "student" | "member" | "lecturer" | "staff" | "project_coordinator" | "hod" | "librarian"
 
 export interface ApiUser {
   id: number
   email: string
+  school_id: string | null
+  school: string | null
   full_name: string | null
   department: string | null
   is_active: boolean
   is_admin: boolean
   role: ApiUserRole
+  created_at: string | null
 }
 
 export interface ApiListUsersParams {
@@ -42,7 +45,7 @@ export interface ApiPaper {
   id: number
   title: string
   abstract: string | null
-  status: "draft" | "pending" | "approved" | "revision" | "rejected"
+  status: "draft" | "pending" | "pending_lecturer" | "pending_coordinator" | "pending_hod" | "pending_hod_and_coordinator" | "approved_for_library" | "approved" | "revision" | "rejected"
   discipline: string | null
   university: string | null
   year: number
@@ -100,7 +103,16 @@ export interface ApiNotification {
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(text || response.statusText)
+    let message = text || response.statusText
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { detail?: string }
+        if (parsed?.detail) {
+          message = parsed.detail
+        }
+      } catch {}
+    }
+    throw new Error(message)
   }
   return response.json() as Promise<T>
 }
@@ -117,11 +129,19 @@ export async function apiLogin(email: string, password: string): Promise<TokenRe
   return handleResponse<TokenResponse>(response)
 }
 
-export async function apiRegister(email: string, password: string, fullName: string, department?: string): Promise<ApiUser> {
+export async function apiRegister(
+  email: string,
+  password: string,
+  fullName: string,
+  role: ApiUserRole,
+  schoolId?: string,
+  school?: string,
+  department?: string,
+): Promise<ApiUser> {
   const response = await fetch(`${apiBase}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password, full_name: fullName, department }),
+    body: JSON.stringify({ email, password, role, full_name: fullName, school_id: schoolId, school, department }),
   })
   return handleResponse<ApiUser>(response)
 }
@@ -152,7 +172,7 @@ export async function apiMe(accessToken: string): Promise<ApiUser> {
 
 export async function apiUpdateUser(
   userId: number,
-  payload: { full_name?: string; department?: string; password?: string },
+  payload: { full_name?: string; school_id?: string; school?: string; department?: string; password?: string },
   accessToken: string,
 ): Promise<ApiUser> {
   const response = await fetch(`${apiBase}/users/${userId}`, {
@@ -200,6 +220,16 @@ export async function apiUpdateUserRole(userId: number, role: ApiUserRole, acces
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ role }),
+  })
+  return handleResponse<ApiUser>(response)
+}
+
+export async function apiActivateUser(userId: number, accessToken: string): Promise<ApiUser> {
+  const response = await fetch(`${apiBase}/users/${userId}/activate`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   return handleResponse<ApiUser>(response)
 }
@@ -271,6 +301,13 @@ export async function apiUploadPaper(payload: ApiUploadPaperPayload, accessToken
 
 export async function apiGetPendingPapers(accessToken: string): Promise<ApiPaper[]> {
   const response = await fetch(`${apiBase}/papers/pending`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPaper[]>(response)
+}
+
+export async function apiGetReviewedPapers(accessToken: string): Promise<ApiPaper[]> {
+  const response = await fetch(`${apiBase}/papers/reviewed`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)

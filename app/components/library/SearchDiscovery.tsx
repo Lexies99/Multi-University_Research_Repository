@@ -30,9 +30,45 @@ export function SearchDiscovery() {
   const [error, setError] = useState('')
   const resultsPerPage = 6
 
-  const disciplines = ['Computer Science', 'Physics', 'Engineering', 'Environmental Science', 'Medicine', 'Mathematics']
+  const SCHOOL_DISCIPLINE_MAP: Record<string, string[]> = {
+    'Business School': [
+      'Business Administration',
+      'Accounting and Finance',
+    ],
+    'School of Public Service and Governance': [
+      'Public Service and Governance',
+    ],
+    'Faculty of Law': [
+      'Law',
+    ],
+    'School of Technology and Social Sciences (SOTSS)': [
+      'Computer Science and Information Systems',
+      'Information Systems and Innovation',
+      'Economics and Hospitality Studies',
+      'Liberal Arts and Communication Studies',
+    ],
+  }
+  const disciplines = Array.from(new Set(Object.values(SCHOOL_DISCIPLINE_MAP).flat()))
   const years = ['2024', '2023', '2022', '2021', '2020']
-  const universities = ['Harvard', 'MIT', 'Stanford', 'Oxford', 'Cambridge', 'UC Berkeley']
+  const schools = [
+    'Business School',
+    'School of Public Service and Governance',
+    'Faculty of Law',
+    'School of Technology and Social Sciences (SOTSS)',
+  ]
+  const selectedSchool = activeFilters.university?.[0]
+  const visibleDisciplines = selectedSchool ? (SCHOOL_DISCIPLINE_MAP[selectedSchool] || []) : disciplines
+
+  useEffect(() => {
+    const selectedDiscipline = activeFilters.discipline?.[0]
+    if (!selectedSchool || !selectedDiscipline) return
+    if (visibleDisciplines.includes(selectedDiscipline)) return
+    setActiveFilters((prev) => {
+      const next = { ...prev }
+      delete next.discipline
+      return next
+    })
+  }, [selectedSchool, activeFilters.discipline, visibleDisciplines])
 
   useEffect(() => {
     let cancelled = false
@@ -183,7 +219,7 @@ export function SearchDiscovery() {
               <div>
                 <h4 className="font-semibold text-sm mb-3">Discipline</h4>
                 <div className="space-y-2">
-                  {disciplines.map((d) => (
+                  {visibleDisciplines.map((d) => (
                     <label key={d} className="flex items-center gap-2 cursor-pointer hover:text-foreground text-muted-foreground text-sm">
                       <input
                         type="checkbox"
@@ -198,9 +234,9 @@ export function SearchDiscovery() {
               </div>
 
               <div>
-                <h4 className="font-semibold text-sm mb-3">University</h4>
+                <h4 className="font-semibold text-sm mb-3">School</h4>
                 <div className="space-y-2">
-                  {universities.map((u) => (
+                  {schools.map((u) => (
                     <label key={u} className="flex items-center gap-2 cursor-pointer hover:text-foreground text-muted-foreground text-sm">
                       <input
                         type="checkbox"
@@ -314,7 +350,7 @@ export function SearchDiscovery() {
                         <div className="flex gap-2 flex-wrap">
                           <Badge variant="outline" className="text-xs">{paper.year}</Badge>
                           <Badge variant="outline" className="text-xs">{paper.discipline || 'General'}</Badge>
-                          <Badge variant="outline" className="text-xs">{paper.university || 'Unknown'}</Badge>
+                          <Badge variant="outline" className="text-xs">{paper.university || 'Unknown School'}</Badge>
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 flex-shrink-0">

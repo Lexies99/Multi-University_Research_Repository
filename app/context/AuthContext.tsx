@@ -15,6 +15,8 @@ export type UserRole = 'guest' | ApiUserRole
 export interface User {
   id: number
   email: string
+  schoolId?: string
+  school?: string
   name: string
   role: UserRole
   university?: string
@@ -26,7 +28,15 @@ interface AuthContextType {
   isAuthenticated: boolean
   login: (email: string, password: string, role: UserRole) => Promise<boolean>
   logout: () => Promise<void>
-  createAccount: (email: string, password: string, name: string, role: ApiUserRole) => Promise<boolean>
+  createAccount: (
+    email: string,
+    password: string,
+    name: string,
+    role: ApiUserRole,
+    schoolId?: string,
+    school?: string,
+    department?: string,
+  ) => Promise<{ ok: boolean; error?: string }>
   setUser: (user: User | null) => void
   changePassword: (oldPassword: string, newPassword: string) => Promise<boolean>
   updateProfile: (name: string, department?: string) => Promise<boolean>
@@ -43,6 +53,8 @@ const roleFromApiUser = (user: ApiUser): UserRole => user.role || (user.is_admin
 const buildUser = (apiUser: ApiUser, extras?: Partial<User>): User => ({
   id: apiUser.id,
   email: apiUser.email,
+  schoolId: apiUser.school_id || extras?.schoolId,
+  school: apiUser.school || extras?.school,
   name: apiUser.full_name || apiUser.email.split('@')[0],
   role: roleFromApiUser(apiUser),
   university: extras?.university,
@@ -143,15 +155,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string,
     name: string,
     role: ApiUserRole,
-  ): Promise<boolean> => {
-    if (!email || !password || !name) return false
-    if (role === 'librarian' && user?.role !== 'librarian') return false
+    schoolId?: string,
+    school?: string,
+    department?: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!email || !password || !name || !role) {
+      return { ok: false, error: 'Please fill in all required fields' }
+    }
 
     try {
-      await apiRegister(email, password, name)
-      return await login(email, password, role)
-    } catch {
-      return false
+      await apiRegister(email, password, name, role, schoolId, school, department)
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Account creation failed. Please try again.'
+      return { ok: false, error: message }
     }
   }
 

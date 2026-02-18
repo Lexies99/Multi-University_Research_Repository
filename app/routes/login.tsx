@@ -29,7 +29,7 @@ export default function LoginPage() {
     }
 
     setLoading(true)
-    const success = await login(email, password, 'member')
+    const success = await login(email, password, 'student')
     setLoading(false)
 
     if (!success) {
@@ -80,7 +80,7 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Login / Register Form */}
+        {/* Login Form */}
         <Card>
           <CardHeader>
             <CardTitle>Sign In</CardTitle>
@@ -130,7 +130,17 @@ export default function LoginPage() {
 
             {/* Footer */}
             <div className="text-xs text-muted-foreground text-center mt-4 space-y-2">
-              <p>Need access? Contact your institution librarian.</p>
+              <p>
+                Don&apos;t have an account?{' '}
+                <button
+                  type="button"
+                  className="text-primary underline"
+                  onClick={() => navigate('/signup')}
+                >
+                  Create one here
+                </button>
+                .
+              </p>
             </div>
           </CardContent>
         </Card>

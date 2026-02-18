@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { Book, Users, BookOpen, Settings, BarChart3, Library, Upload, Search, LogOut, User, Bell } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { apiGetPaperStats, apiGetNotifications, apiMarkNotificationRead, type ApiNotification } from '../lib/api';
+import { apiGetPendingPapers, apiGetNotifications, apiMarkNotificationRead, type ApiNotification } from '../lib/api';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -31,7 +31,7 @@ export default function Home() {
   const [overdueCount, setOverdueCount] = useState(0);
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const isReviewer = user?.role === 'librarian' || user?.role === 'lecturer' || user?.role === 'staff'
+  const isReviewer = user?.role === 'librarian' || user?.role === 'project_coordinator' || user?.role === 'hod' || user?.role === 'lecturer'
 
   const handleTabChange = (tab: string) => {
     const publicTabs = new Set(['catalog', 'search']);
@@ -57,17 +57,26 @@ export default function Home() {
     const load = async () => {
       if (!isReviewer) return
       try {
-        const stats = await apiGetPaperStats()
-        if (!cancelled) setOverdueCount(stats.pending_reviews)
+        const token = localStorage.getItem('murrs_access_token')
+        if (!token) {
+          if (!cancelled) setOverdueCount(0)
+          return
+        }
+        const pending = await apiGetPendingPapers(token)
+        if (!cancelled) setOverdueCount(pending.length)
       } catch {
         if (!cancelled) setOverdueCount(0)
       }
     }
     void load()
+    const timer = setInterval(() => {
+      void load()
+    }, 10000)
     return () => {
       cancelled = true
+      clearInterval(timer)
     }
-  }, [isReviewer])
+  }, [isReviewer, activeTab, user?.role])
 
   useEffect(() => {
     let cancelled = false
@@ -151,7 +160,7 @@ export default function Home() {
                   <div className="text-right">
                     <p className="text-sm font-medium">{user.name}</p>
                     <p className="text-xs text-muted-foreground capitalize">
-                      {user.role === 'member' ? 'Student' : user.role === 'lecturer' ? 'Lecturer' : user.role === 'staff' ? 'Staff' : user.role}
+                      {user.role === 'student' || user.role === 'member' ? 'Student' : user.role === 'project_coordinator' ? 'Project Coordinator' : user.role === 'hod' ? 'HOD' : user.role}
                     </p>
                     {user.university && (
                       <p className="text-xs text-muted-foreground">{user.university}</p>
@@ -192,7 +201,7 @@ export default function Home() {
           <TabsList className={`grid w-full mb-6 ${
             user?.role === 'librarian' ? 'grid-cols-7' :
             isReviewer ? 'grid-cols-6' :
-            user?.role === 'member' ? 'grid-cols-5' :
+            user?.role === 'student' || user?.role === 'member' ? 'grid-cols-5' :
             'grid-cols-2'
           }`}>
             <TabsTrigger value="catalog" className="flex items-center gap-2">
@@ -271,7 +280,7 @@ export default function Home() {
 
           {isAuthenticated && user?.role !== 'guest' && (
             <TabsContent value="dashboard">
-              <Dashboard userRole={user?.role || 'member'} />
+              <Dashboard userRole={user?.role || 'student'} />
             </TabsContent>
           )}
 

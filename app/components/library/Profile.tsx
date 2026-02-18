@@ -96,8 +96,13 @@ export function Profile() {
 
   const getRoleLabel = (role: string) => {
     switch (role) {
+      case 'student':
       case 'member':
         return 'Student'
+      case 'project_coordinator':
+        return 'Project Coordinator'
+      case 'hod':
+        return 'HOD'
       case 'lecturer':
         return 'Lecturer'
       case 'staff':

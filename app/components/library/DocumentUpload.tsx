@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -12,12 +12,42 @@ import { Checkbox } from '../ui/checkbox';
 import { apiListSupervisors, apiUploadPaper, type ApiUser } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 
+const DISCIPLINES_BY_SCHOOL: Record<string, string[]> = {
+  'Business School': [
+    'Business Administration',
+    'Accounting and Finance',
+  ],
+  'School of Public Service and Governance': [
+    'Public Service and Governance',
+  ],
+  'Faculty of Law': [
+    'Law',
+  ],
+  'School of Technology and Social Sciences (SOTSS)': [
+    'Computer Science and Information Systems',
+    'Information Systems and Innovation',
+    'Economics and Hospitality Studies',
+    'Liberal Arts and Communication Studies',
+  ],
+}
+
+const ALL_DISCIPLINES = [
+  'Business Administration',
+  'Accounting and Finance',
+  'Public Service and Governance',
+  'Law',
+  'Computer Science and Information Systems',
+  'Information Systems and Innovation',
+  'Economics and Hospitality Studies',
+  'Liberal Arts and Communication Studies',
+]
+
 export function DocumentUpload() {
   const { user } = useAuth()
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [authors, setAuthors] = useState([{ name: '', affiliation: '', email: '' }]);
+  const [authors, setAuthors] = useState([{ name: '' }]);
   const [formData, setFormData] = useState({
     title: '',
     abstract: '',
@@ -29,12 +59,16 @@ export function DocumentUpload() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [supervisors, setSupervisors] = useState<ApiUser[]>([]);
   const [supervisorId, setSupervisorId] = useState('');
+  const disciplineOptions = useMemo(
+    () => DISCIPLINES_BY_SCHOOL[user?.university || ''] || ALL_DISCIPLINES,
+    [user?.university],
+  )
 
   useEffect(() => {
     let cancelled = false
     const loadSupervisors = async () => {
       const accessToken = localStorage.getItem('murrs_access_token')
-      if (!accessToken || user?.role !== 'member') return
+      if (!accessToken || (user?.role !== 'member' && user?.role !== 'student')) return
       try {
         const items = await apiListSupervisors(accessToken)
         if (!cancelled) setSupervisors(items)
@@ -79,7 +113,7 @@ export function DocumentUpload() {
       setSubmitMessage('Please attach a file before submitting.');
       return;
     }
-    if (user?.role === 'member' && !supervisorId) {
+    if ((user?.role === 'member' || user?.role === 'student') && !supervisorId) {
       setSubmitMessage('Please assign a supervisor before submitting.');
       return;
     }
@@ -92,15 +126,13 @@ export function DocumentUpload() {
           title: formData.title,
           abstract: formData.abstract,
           discipline: formData.discipline,
-          university: authors[0]?.affiliation || 'Independent',
+          university: user?.university || 'GIMPA',
           document_type: formData.documentType,
           license: formData.license,
           file: selectedFile,
           tags: formData.keywords.split(',').map((k) => k.trim()).filter(Boolean),
           authors: authors.map((a) => ({
             name: a.name,
-            affiliation: a.affiliation || undefined,
-            email: a.email || undefined,
           })),
           supervisor_id: supervisorId ? Number(supervisorId) : undefined,
         },
@@ -108,7 +140,9 @@ export function DocumentUpload() {
       );
 
       setUploadProgress(100);
-      setSubmitMessage(`Paper submitted successfully! ID: ${created.id} (status: ${created.status})`);
+      setSubmitMessage(
+        `Submission sent successfully. Paper ID: ${created.id}. It is now in lecturer review (${created.status}), and notification emails have been queued.`,
+      );
       setSelectedFile(null);
       setFormData({
         title: '',
@@ -118,7 +152,7 @@ export function DocumentUpload() {
         documentType: '',
         license: '',
       });
-      setAuthors([{ name: '', affiliation: '', email: '' }]);
+      setAuthors([{ name: '' }]);
       setSupervisorId('');
     } catch (err) {
       setSubmitMessage(err instanceof Error ? err.message : 'Upload failed');
@@ -129,7 +163,7 @@ export function DocumentUpload() {
   };
 
   const addAuthor = () => {
-    setAuthors([...authors, { name: '', affiliation: '', email: '' }]);
+    setAuthors([...authors, { name: '' }]);
   };
 
   const removeAuthor = (index: number) => {
@@ -223,7 +257,7 @@ export function DocumentUpload() {
                 Supervisor filtering applies to member accounts.
               </div>
             )}
-            {user?.role === 'member' && (
+            {(user?.role === 'member' || user?.role === 'student') && (
               <div>
                 <Label htmlFor="supervisor">Assign Supervisor *</Label>
                 <Select value={supervisorId} onValueChange={setSupervisorId}>
@@ -233,7 +267,7 @@ export function DocumentUpload() {
                   <SelectContent>
                     {supervisors.length === 0 && (
                       <SelectItem value="__none__" disabled>
-                        No lecturers found in your department
+                        No lecturers found in your school
                       </SelectItem>
                     )}
                     {supervisors.map((s) => (
@@ -279,11 +313,11 @@ export function DocumentUpload() {
                     <SelectValue placeholder="Select discipline" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Computer Science">Computer Science</SelectItem>
-                    <SelectItem value="Engineering">Engineering</SelectItem>
-                    <SelectItem value="Medicine">Medicine</SelectItem>
-                    <SelectItem value="Physics">Physics</SelectItem>
-                    <SelectItem value="Biology">Biology</SelectItem>
+                    {disciplineOptions.map((discipline) => (
+                      <SelectItem key={discipline} value={discipline}>
+                        {discipline}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -323,7 +357,7 @@ export function DocumentUpload() {
         <Card>
           <CardHeader>
             <CardTitle>Authors</CardTitle>
-            <CardDescription>Add all authors and their affiliations</CardDescription>
+            <CardDescription>Add all authors</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {authors.map((author, index) => (
@@ -341,7 +375,7 @@ export function DocumentUpload() {
                     </Button>
                   )}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                     <Label>Name *</Label>
                     <Input
@@ -353,31 +387,6 @@ export function DocumentUpload() {
                         setAuthors(newAuthors);
                       }}
                       required
-                    />
-                  </div>
-                  <div>
-                    <Label>Affiliation</Label>
-                    <Input
-                      placeholder="Institution/Department"
-                      value={author.affiliation}
-                      onChange={(e) => {
-                        const newAuthors = [...authors];
-                        newAuthors[index].affiliation = e.target.value;
-                        setAuthors(newAuthors);
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <Label>Email</Label>
-                    <Input
-                      type="email"
-                      placeholder="email@example.com"
-                      value={author.email}
-                      onChange={(e) => {
-                        const newAuthors = [...authors];
-                        newAuthors[index].email = e.target.value;
-                        setAuthors(newAuthors);
-                      }}
                     />
                   </div>
                 </div>
