@@ -71,7 +71,7 @@ const ACADEMIC_AREA_OPTIONS_BY_SCHOOL: Record<string, string[]> = {
 
 export default function SignupPage() {
   const [name, setName] = useState('')
-  const [role, setRole] = useState<ApiUserRole>('student')
+  const [role, setRole] = useState<ApiUserRole>('staff')
   const [schoolId, setSchoolId] = useState('')
   const [school, setSchool] = useState('')
   const [department, setDepartment] = useState('')
@@ -104,7 +104,7 @@ export default function SignupPage() {
     const finalSchoolEmail = schoolEmail.trim() || getInputValue('school-email')
     const finalPassword = password || getInputValue('password')
     const needsSchool = finalRole !== 'librarian'
-    const needsSchoolId = finalRole === 'student' || finalRole === 'member'
+    const needsSchoolId = false
     const needsDepartment =
       finalRole === 'lecturer' || finalRole === 'staff' || finalRole === 'project_coordinator' || finalRole === 'hod'
 
@@ -124,12 +124,16 @@ export default function SignupPage() {
       setError('Please fill in Department')
       return
     }
-    if (!finalSchoolEmail.toLowerCase().endsWith('@st.gimpa.edu.gh')) {
-      setError('School email must end with @st.gimpa.edu.gh')
+    const emailValue = finalSchoolEmail.toLowerCase().trim()
+    const domain = emailValue.includes('@') ? emailValue.split('@')[1] : ''
+    const isValidGimpaEmail = !!domain && (domain === 'gimpa.edu.gh' || domain.endsWith('.gimpa.edu.gh'))
+    if (!isValidGimpaEmail) {
+      setError('School email must be a GIMPA email (@gimpa.edu.gh or subdomains)')
       return
     }
-    if (finalPassword.length < 6) {
-      setError('Password must be at least 6 characters')
+    const strongPassword = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{12,128}$/.test(finalPassword)
+    if (!strongPassword) {
+      setError('Password must be 12+ chars with uppercase, lowercase, number, and special character')
       return
     }
 
@@ -152,7 +156,7 @@ export default function SignupPage() {
 
     setSuccess('Account submitted. A librarian will activate it before you can sign in.')
     setName('')
-    setRole('student')
+    setRole('lecturer')
     setSchoolId('')
     setSchool('')
     setDepartment('')
@@ -169,13 +173,13 @@ export default function SignupPage() {
             <h1 className="text-3xl font-bold">MURRS</h1>
           </div>
           <h2 className="text-2xl font-bold">Create Account</h2>
-          <p className="text-muted-foreground">Student self-registration</p>
+          <p className="text-muted-foreground">Staff self-registration</p>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle>Sign Up</CardTitle>
-            <CardDescription>Use your GIMPA student email</CardDescription>
+            <CardDescription>Use your GIMPA staff email</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (
@@ -202,12 +206,7 @@ export default function SignupPage() {
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="student">Student</SelectItem>
-                  <SelectItem value="lecturer">Lecturer</SelectItem>
                   <SelectItem value="staff">Staff</SelectItem>
-                  <SelectItem value="project_coordinator">Project Coordinator</SelectItem>
-                  <SelectItem value="hod">HOD</SelectItem>
-                  <SelectItem value="librarian">Librarian</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -227,13 +226,6 @@ export default function SignupPage() {
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-            )}
-
-            {(role === 'student' || role === 'member') && (
-              <div>
-              <Label htmlFor="school-id">School ID</Label>
-                <Input id="school-id" value={schoolId} onChange={(e) => setSchoolId(e.target.value)} placeholder="GIMPA000001" className="mt-1" />
               </div>
             )}
 
@@ -275,7 +267,7 @@ export default function SignupPage() {
 
             <div>
               <Label htmlFor="school-email">School Email</Label>
-              <Input id="school-email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} placeholder="john.doe@st.gimpa.edu.gh" className="mt-1" />
+              <Input id="school-email" type="email" value={schoolEmail} onChange={(e) => setSchoolEmail(e.target.value)} placeholder="john.doe@gimpa.edu.gh" className="mt-1" />
             </div>
 
             <div>

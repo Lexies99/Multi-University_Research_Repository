@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import {
+  apiChangePassword,
   apiLogin,
   apiLogout,
   apiMe,
@@ -19,14 +20,16 @@ export interface User {
   school?: string
   name: string
   role: UserRole
+  roles?: UserRole[]
   university?: string
   department?: string
+  mustChangePassword?: boolean
 }
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
-  login: (email: string, password: string, role: UserRole) => Promise<boolean>
+  login: (email: string, password: string, role: UserRole) => Promise<{ ok: boolean; error?: string }>
   logout: () => Promise<void>
   createAccount: (
     email: string,
@@ -49,17 +52,50 @@ const REFRESH_TOKEN_KEY = 'murrs_refresh_token'
 const USER_KEY = 'murrs_user'
 
 const roleFromApiUser = (user: ApiUser): UserRole => user.role || (user.is_admin ? 'librarian' : 'member')
+const ROLE_PRIORITY: UserRole[] = [
+  'system_admin',
+  'head_library',
+  'librarian',
+  'dean',
+  'hod',
+  'project_coordinator',
+  'project_supervisor',
+  'lecturer',
+  'staff',
+  'student',
+  'member',
+  'guest',
+]
 
-const buildUser = (apiUser: ApiUser, extras?: Partial<User>): User => ({
-  id: apiUser.id,
-  email: apiUser.email,
-  schoolId: apiUser.school_id || extras?.schoolId,
-  school: apiUser.school || extras?.school,
-  name: apiUser.full_name || apiUser.email.split('@')[0],
-  role: roleFromApiUser(apiUser),
-  university: extras?.university,
-  department: apiUser.department || extras?.department,
-})
+const getEffectiveRole = (roles: UserRole[], fallback: UserRole): UserRole => {
+  for (const role of ROLE_PRIORITY) {
+    if (roles.includes(role)) return role
+  }
+  return fallback
+}
+
+const buildUser = (apiUser: ApiUser, extras?: Partial<User>): User => {
+  const primaryRole = roleFromApiUser(apiUser)
+  const apiRoles = (apiUser.roles && apiUser.roles.length > 0 ? apiUser.roles : [primaryRole]) as UserRole[]
+  const mergedRoles = Array.from(
+    new Set(
+      [...apiRoles, ...(extras?.roles || []), primaryRole].filter(Boolean) as UserRole[],
+    ),
+  )
+  const effectiveRole = getEffectiveRole(mergedRoles, primaryRole)
+  return {
+    id: apiUser.id,
+    email: apiUser.email,
+    schoolId: apiUser.school_id || extras?.schoolId,
+    school: apiUser.school || extras?.school,
+    name: apiUser.full_name || apiUser.email.split('@')[0],
+    role: effectiveRole,
+    roles: mergedRoles,
+    university: extras?.university,
+    department: apiUser.department || extras?.department,
+    mustChangePassword: typeof apiUser.must_change_password === 'boolean' ? apiUser.must_change_password : extras?.mustChangePassword,
+  }
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null)
@@ -105,8 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restore()
   }, [])
 
-  const login = async (email: string, password: string, role: UserRole): Promise<boolean> => {
-    if (!email || !password) return false
+  const login = async (email: string, password: string, role: UserRole): Promise<{ ok: boolean; error?: string }> => {
+    if (!email || !password) return { ok: false, error: 'Please enter email and password' }
 
     if (role === 'guest') {
       localStorage.removeItem(ACCESS_TOKEN_KEY)
@@ -116,10 +152,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email,
         name: 'Guest',
         role: 'guest',
+        roles: ['guest'],
       }
       setUser(guest)
       localStorage.setItem(USER_KEY, JSON.stringify(guest))
-      return true
+      return { ok: true }
     }
 
     try {
@@ -128,12 +165,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
 
       const apiUser = await apiMe(tokens.access_token)
-      const nextUser = buildUser(apiUser)
+      const nextUser = buildUser(apiUser, { mustChangePassword: tokens.must_change_password })
       setUser(nextUser)
       localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
-      return true
-    } catch {
-      return false
+      return { ok: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Login failed. Please check your credentials.'
+      return { ok: false, error: message }
     }
   }
 
@@ -181,7 +219,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!accessToken) return false
 
     try {
-      await apiUpdateUser(user.id, { password: newPassword }, accessToken)
+      const apiUser = await apiChangePassword(oldPassword, newPassword, accessToken)
+      const updated: User = { ...buildUser(apiUser, user), mustChangePassword: false }
+      setUser(updated)
+      localStorage.setItem(USER_KEY, JSON.stringify(updated))
       return true
     } catch {
       if (!refreshToken) return false
@@ -189,7 +230,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const tokens = await apiRefresh(refreshToken)
         localStorage.setItem(ACCESS_TOKEN_KEY, tokens.access_token)
         localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token)
-        await apiUpdateUser(user.id, { password: newPassword }, tokens.access_token)
+        const apiUser = await apiChangePassword(oldPassword, newPassword, tokens.access_token)
+        const updated: User = { ...buildUser(apiUser, user), mustChangePassword: false }
+        setUser(updated)
+        localStorage.setItem(USER_KEY, JSON.stringify(updated))
         return true
       } catch {
         return false

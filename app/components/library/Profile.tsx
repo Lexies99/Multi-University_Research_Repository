@@ -6,7 +6,7 @@ import { Label } from '../ui/label'
 import { Badge } from '../ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
-import { User, Lock, Edit2, Mail, Building2 } from 'lucide-react'
+import { User, Lock, Edit2, Mail, Building2, Eye, EyeOff } from 'lucide-react'
 
 export function Profile() {
   const { user, changePassword, updateProfile } = useAuth()
@@ -17,6 +17,9 @@ export function Profile() {
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [showOldPassword, setShowOldPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [editError, setEditError] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [editSuccess, setEditSuccess] = useState('')
@@ -55,8 +58,9 @@ export function Profile() {
       return
     }
 
-    if (newPassword.length < 6) {
-      setPasswordError('Password must be at least 6 characters')
+    const strongPassword = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{12,128}$/.test(newPassword)
+    if (!strongPassword) {
+      setPasswordError('Password must be 12-128 chars with uppercase, lowercase, number, and special character')
       return
     }
 
@@ -138,6 +142,14 @@ export function Profile() {
         <Card className="border-green-500/50 bg-green-50 dark:bg-green-900/20">
           <CardContent className="pt-6 text-center text-green-700 dark:text-green-400">
             {passwordSuccess}
+          </CardContent>
+        </Card>
+      )}
+
+      {user.mustChangePassword && (
+        <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-900/20">
+          <CardContent className="pt-6 text-center text-amber-800 dark:text-amber-300">
+            Your account uses a temporary password. Change it now before using other features.
           </CardContent>
         </Card>
       )}
@@ -260,35 +272,68 @@ export function Profile() {
 
                   <div>
                     <Label htmlFor="old-password">Current Password</Label>
-                    <Input
-                      id="old-password"
-                      type="password"
-                      value={oldPassword}
-                      onChange={(e) => setOldPassword(e.target.value)}
-                      className="mt-1"
-                    />
+                    <div className="relative mt-1">
+                      <Input
+                        id="old-password"
+                        type={showOldPassword ? 'text' : 'password'}
+                        value={oldPassword}
+                        onChange={(e) => setOldPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOldPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-2 flex items-center text-muted-foreground hover:text-foreground"
+                        aria-label={showOldPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showOldPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
                     <Label htmlFor="new-password">New Password</Label>
-                    <Input
-                      id="new-password"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="mt-1"
-                    />
+                    <div className="relative mt-1">
+                      <Input
+                        id="new-password"
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-2 flex items-center text-muted-foreground hover:text-foreground"
+                        aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <div>
                     <Label htmlFor="confirm-password">Confirm Password</Label>
-                    <Input
-                      id="confirm-password"
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="mt-1"
-                    />
+                    <div className="relative mt-1">
+                      <Input
+                        id="confirm-password"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-2 flex items-center text-muted-foreground hover:text-foreground"
+                        aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Password must be 12-128 characters and include uppercase, lowercase, number, and special character.
+                    </p>
                   </div>
 
                   <Button onClick={handleChangePassword} className="w-full">
@@ -310,7 +355,7 @@ export function Profile() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>• Use a strong password with at least 6 characters</p>
+          <p>• Use 12-128 characters with uppercase, lowercase, number, and special character</p>
           <p>• Change your password regularly</p>
           <p>• Do not share your credentials with others</p>
           <p>• Log out when using shared computers</p>

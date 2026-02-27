@@ -5,11 +5,12 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { useAuth } from '../context/AuthContext'
-import { LogIn, BookOpen, AlertCircle } from 'lucide-react'
+import { LogIn, BookOpen, AlertCircle, Eye, EyeOff } from 'lucide-react'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const { login } = useAuth()
@@ -29,11 +30,11 @@ export default function LoginPage() {
     }
 
     setLoading(true)
-    const success = await login(email, password, 'student')
+    const result = await login(email, password, 'student')
     setLoading(false)
 
-    if (!success) {
-      setError('Login failed. Please check your credentials.')
+    if (!result.ok) {
+      setError(result.error || 'Login failed. Please check your credentials.')
       return
     }
 
@@ -41,8 +42,8 @@ export default function LoginPage() {
   }
 
   const handleGuestAccess = async () => {
-    const success = await login('guest@murrs.edu', 'guest', 'guest')
-    if (success) {
+    const result = await login('guest@murrs.edu', 'guest', 'guest')
+    if (result.ok) {
       navigate('/')
     }
   }
@@ -111,15 +112,25 @@ export default function LoginPage() {
             {/* Password */}
             <div>
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="mt-1"
-              />
+              <div className="relative mt-1">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-2 flex items-center text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             {/* Submit Button */}
@@ -128,20 +139,6 @@ export default function LoginPage() {
               Sign In
             </Button>
 
-            {/* Footer */}
-            <div className="text-xs text-muted-foreground text-center mt-4 space-y-2">
-              <p>
-                Don&apos;t have an account?{' '}
-                <button
-                  type="button"
-                  className="text-primary underline"
-                  onClick={() => navigate('/signup')}
-                >
-                  Create one here
-                </button>
-                .
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

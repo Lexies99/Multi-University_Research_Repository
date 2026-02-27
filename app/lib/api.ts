@@ -1,4 +1,11 @@
-const DEFAULT_API_URL = "http://127.0.0.1:8000"
+const localHost =
+  typeof window !== "undefined" ? window.location.hostname : ""
+const DEFAULT_API_URL =
+  localHost === "localhost"
+    ? "http://localhost:8011"
+    : localHost === "127.0.0.1"
+      ? "http://127.0.0.1:8011"
+      : "http://127.0.0.1:8011"
 
 const baseUrl = (import.meta as { env?: Record<string, string> }).env?.VITE_API_URL || DEFAULT_API_URL
 const apiBase = `${baseUrl.replace(/\/$/, "")}/api`
@@ -7,9 +14,21 @@ export interface TokenResponse {
   access_token: string
   refresh_token: string
   token_type: string
+  must_change_password?: boolean
 }
 
-export type ApiUserRole = "student" | "member" | "lecturer" | "staff" | "project_coordinator" | "hod" | "librarian"
+export type ApiUserRole =
+  | "student"
+  | "member"
+  | "lecturer"
+  | "staff"
+  | "project_coordinator"
+  | "project_supervisor"
+  | "hod"
+  | "dean"
+  | "system_admin"
+  | "librarian"
+  | "head_library"
 
 export interface ApiUser {
   id: number
@@ -21,7 +40,23 @@ export interface ApiUser {
   is_active: boolean
   is_admin: boolean
   role: ApiUserRole
+  roles?: ApiUserRole[]
+  must_change_password?: boolean
   created_at: string | null
+}
+
+export interface ApiAdminCreateUserPayload {
+  email: string
+  role: ApiUserRole
+  full_name?: string
+  school_id?: string
+  school?: string
+  department?: string
+}
+
+export interface ApiAdminCreateUserResult {
+  user: ApiUser
+  email_sent: boolean
 }
 
 export interface ApiListUsersParams {
@@ -50,6 +85,7 @@ export interface ApiPaper {
   university: string | null
   year: number
   document_type: string | null
+  publication_type?: string | null
   license: string | null
   file_name: string | null
   file_size: number | null
@@ -60,9 +96,22 @@ export interface ApiPaper {
   rating: number | null
   review_comments: string | null
   supervisor_id: number | null
+  department_id?: number | null
+  abstract_word_count?: number | null
+  work_mode?: "individual" | "group"
   created_at: string | null
   authors: ApiAuthor[]
   tags: string[]
+}
+
+export interface ApiPaperAnnotation {
+  id: number
+  paper_id: number
+  author_id: number
+  location: string | null
+  text: string
+  resolved: boolean
+  created_at: string | null
 }
 
 export interface ApiCreatePaperPayload {
@@ -72,9 +121,12 @@ export interface ApiCreatePaperPayload {
   university?: string
   year?: number
   document_type?: string
+  publication_type?: "thesis" | "dissertation" | "systematic_review" | "article" | "other"
   license?: string
   file_name?: string
   supervisor_id?: number
+  department_id?: number
+  work_mode?: "individual" | "group"
   tags?: string[]
   authors?: Array<{ name: string; email?: string; affiliation?: string }>
 }
@@ -98,6 +150,51 @@ export interface ApiNotification {
   message: string
   is_read: boolean
   created_at: string | null
+}
+
+export interface ApiStudent {
+  student_id: string
+  full_name: string
+  email: string
+  school: string | null
+  department: string | null
+  certification_type: string | null
+  block_code: string | null
+  year: number | null
+}
+
+export interface ApiImportSummaryUnit {
+  imported_or_updated: number
+  emailed_sent?: number
+  emailed_failed?: number
+  errors: string[]
+}
+
+export interface ApiImportAccountsSummary {
+  students?: ApiImportSummaryUnit
+  lecturers?: ApiImportSummaryUnit
+  library?: ApiImportSummaryUnit
+}
+
+export interface ApiDepartment {
+  id: number
+  institution_id: number
+  institution_name: string | null
+  name: string
+  hod_user_id: number | null
+  dean_user_id: number | null
+}
+
+export interface ApiDepartmentSupervisor {
+  id: number
+  department_id: number
+  supervisor_user_id: number
+  active: boolean
+}
+
+export interface ApiOnlyOfficeEditorConfigResponse {
+  document_server_url: string
+  config: Record<string, unknown>
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -186,6 +283,21 @@ export async function apiUpdateUser(
   return handleResponse<ApiUser>(response)
 }
 
+export async function apiAdminCreateUser(
+  payload: ApiAdminCreateUserPayload,
+  accessToken: string,
+): Promise<ApiAdminCreateUserResult> {
+  const response = await fetch(`${apiBase}/admin/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  return handleResponse<ApiAdminCreateUserResult>(response)
+}
+
 export async function apiListUsers(accessToken: string, params: ApiListUsersParams = {}): Promise<ApiUser[]> {
   const query = new URLSearchParams()
   if (typeof params.skip === "number") query.set("skip", String(params.skip))
@@ -224,6 +336,28 @@ export async function apiUpdateUserRole(userId: number, role: ApiUserRole, acces
   return handleResponse<ApiUser>(response)
 }
 
+export async function apiAssignUserRole(userId: number, role: ApiUserRole, accessToken: string): Promise<ApiUser> {
+  const response = await fetch(`${apiBase}/users/${userId}/roles`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ role }),
+  })
+  return handleResponse<ApiUser>(response)
+}
+
+export async function apiRemoveUserRole(userId: number, role: ApiUserRole, accessToken: string): Promise<ApiUser> {
+  const response = await fetch(`${apiBase}/users/${userId}/roles/${role}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+  return handleResponse<ApiUser>(response)
+}
+
 export async function apiActivateUser(userId: number, accessToken: string): Promise<ApiUser> {
   const response = await fetch(`${apiBase}/users/${userId}/activate`, {
     method: "PATCH",
@@ -239,6 +373,8 @@ export async function apiListPapers(params: {
   discipline?: string
   university?: string
   year?: number
+  publication_type?: string
+  department_id?: number
   status?: string
   sort?: string
   skip?: number
@@ -250,6 +386,8 @@ export async function apiListPapers(params: {
   if (params.discipline) query.set("discipline", params.discipline)
   if (params.university) query.set("university", params.university)
   if (typeof params.year === "number") query.set("year", String(params.year))
+  if (params.publication_type) query.set("publication_type", params.publication_type)
+  if (typeof params.department_id === "number") query.set("department_id", String(params.department_id))
   if (params.status) query.set("status", params.status)
   if (params.sort) query.set("sort", params.sort)
   if (typeof params.skip === "number") query.set("skip", String(params.skip))
@@ -285,8 +423,11 @@ export async function apiUploadPaper(payload: ApiUploadPaperPayload, accessToken
   if (payload.university) form.set("university", payload.university)
   if (typeof payload.year === "number") form.set("year", String(payload.year))
   if (payload.document_type) form.set("document_type", payload.document_type)
+  if (payload.publication_type) form.set("publication_type", payload.publication_type)
   if (payload.license) form.set("license", payload.license)
   if (typeof payload.supervisor_id === "number") form.set("supervisor_id", String(payload.supervisor_id))
+  if (typeof payload.department_id === "number") form.set("department_id", String(payload.department_id))
+  if (payload.work_mode) form.set("work_mode", payload.work_mode)
   form.set("tags", JSON.stringify(payload.tags || []))
   form.set("authors", JSON.stringify(payload.authors || []))
   form.set("file", payload.file)
@@ -308,6 +449,13 @@ export async function apiGetPendingPapers(accessToken: string): Promise<ApiPaper
 
 export async function apiGetReviewedPapers(accessToken: string): Promise<ApiPaper[]> {
   const response = await fetch(`${apiBase}/papers/reviewed`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPaper[]>(response)
+}
+
+export async function apiGetRevisionPapers(accessToken: string): Promise<ApiPaper[]> {
+  const response = await fetch(`${apiBase}/papers/revisions`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiPaper[]>(response)
@@ -349,7 +497,39 @@ export async function apiDownloadPaperFile(
   paperId: number,
   accessToken: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${apiBase}/papers/${paperId}/file`, {
+  let response = await fetch(`${apiBase}/papers/${paperId}/binary?t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    // Fallback to legacy endpoint path.
+    response = await fetch(`${apiBase}/papers/${paperId}/file?t=${Date.now()}`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+  }
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || response.statusText)
+  }
+  const disposition = response.headers.get("Content-Disposition") || ""
+  // Support both RFC 5987 (filename*=utf-8''...) and plain filename=...
+  const utf8Match = disposition.match(/filename\*\s*=\s*utf-8''([^;]+)/i)
+  const plainMatch = disposition.match(/filename\s*=\s*\"?([^\";]+)\"?/i)
+  const filename =
+    (utf8Match?.[1] ? decodeURIComponent(utf8Match[1]) : undefined) ||
+    plainMatch?.[1] ||
+    `paper-${paperId}`
+  const blob = await response.blob()
+  return { blob, filename }
+}
+
+export async function apiDownloadReviewedPaperFile(
+  paperId: number,
+  accessToken: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
+    cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!response.ok) {
@@ -357,10 +537,131 @@ export async function apiDownloadPaperFile(
     throw new Error(text || response.statusText)
   }
   const disposition = response.headers.get("Content-Disposition") || ""
-  const match = disposition.match(/filename=\"?([^\";]+)\"?/i)
-  const filename = match?.[1] || `paper-${paperId}`
+  const utf8Match = disposition.match(/filename\*\s*=\s*utf-8''([^;]+)/i)
+  const plainMatch = disposition.match(/filename\s*=\s*\"?([^\";]+)\"?/i)
+  const filename =
+    (utf8Match?.[1] ? decodeURIComponent(utf8Match[1]) : undefined) ||
+    plainMatch?.[1] ||
+    `paper-${paperId}-reviewed`
   const blob = await response.blob()
   return { blob, filename }
+}
+
+export async function apiHasReviewedPaperFile(
+  paperId: number,
+  accessToken: string,
+): Promise<boolean> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/reviewed-file?t=${Date.now()}`, {
+    method: "HEAD",
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return response.ok
+}
+
+export async function apiUploadCorrectedPaperFile(
+  paperId: number,
+  file: File,
+  note: string,
+  accessToken: string,
+): Promise<ApiPaper> {
+  const form = new FormData()
+  form.set("file", file)
+  if (note.trim()) form.set("note", note.trim())
+  const response = await fetch(`${apiBase}/papers/${paperId}/corrected-file`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  return handleResponse<ApiPaper>(response)
+}
+
+export async function apiDownloadPaperFeedbackFile(
+  paperId: number,
+  accessToken: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/feedback-file?t=${Date.now()}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || response.statusText)
+  }
+  const disposition = response.headers.get("Content-Disposition") || ""
+  const utf8Match = disposition.match(/filename\*\s*=\s*utf-8''([^;]+)/i)
+  const plainMatch = disposition.match(/filename\s*=\s*\"?([^\";]+)\"?/i)
+  const filename =
+    (utf8Match?.[1] ? decodeURIComponent(utf8Match[1]) : undefined) ||
+    plainMatch?.[1] ||
+    `paper-${paperId}-feedback.txt`
+  const blob = await response.blob()
+  return { blob, filename }
+}
+
+export async function apiGetPaperEditorConfig(
+  paperId: number,
+  accessToken: string,
+): Promise<ApiOnlyOfficeEditorConfigResponse> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/editor-config`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiOnlyOfficeEditorConfigResponse>(response)
+}
+
+export async function apiGetPaperAnnotations(paperId: number, accessToken: string): Promise<ApiPaperAnnotation[]> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiPaperAnnotation[]>(response)
+}
+
+export async function apiCreatePaperAnnotation(
+  paperId: number,
+  payload: { text: string; location?: string },
+  accessToken: string,
+): Promise<ApiPaperAnnotation> {
+  const form = new FormData()
+  form.set("text", payload.text)
+  if (payload.location?.trim()) form.set("location", payload.location.trim())
+  const response = await fetch(`${apiBase}/papers/${paperId}/annotations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  return handleResponse<ApiPaperAnnotation>(response)
+}
+
+export async function apiUpdatePaperAnnotation(
+  paperId: number,
+  annotationId: number,
+  payload: { text?: string; resolved?: boolean },
+  accessToken: string,
+): Promise<ApiPaperAnnotation> {
+  const form = new FormData()
+  if (typeof payload.text === "string") form.set("text", payload.text)
+  if (typeof payload.resolved === "boolean") form.set("resolved", String(payload.resolved))
+  const response = await fetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  return handleResponse<ApiPaperAnnotation>(response)
+}
+
+export async function apiDeletePaperAnnotation(
+  paperId: number,
+  annotationId: number,
+  accessToken: string,
+): Promise<void> {
+  const response = await fetch(`${apiBase}/papers/${paperId}/annotations/${annotationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || response.statusText)
+  }
 }
 
 export async function apiGetPaperStats(): Promise<ApiPaperStats> {
@@ -395,4 +696,130 @@ export async function apiMarkNotificationRead(notificationId: number, accessToke
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return handleResponse<ApiNotification>(response)
+}
+
+export async function apiListStudents(accessToken: string, params: { skip?: number; limit?: number } = {}): Promise<ApiStudent[]> {
+  const query = new URLSearchParams()
+  if (typeof params.skip === "number") query.set("skip", String(params.skip))
+  if (typeof params.limit === "number") query.set("limit", String(params.limit))
+  const response = await fetch(`${apiBase}/students${query.toString() ? `?${query.toString()}` : ""}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiStudent[]>(response)
+}
+
+export async function apiImportAccounts(
+  accessToken: string,
+  payload: {
+    studentsFile?: File
+    lecturersFile?: File
+    libraryFile?: File
+  },
+): Promise<ApiImportAccountsSummary> {
+  const form = new FormData()
+  if (payload.studentsFile) form.set("students_file", payload.studentsFile)
+  if (payload.lecturersFile) form.set("lecturers_file", payload.lecturersFile)
+  if (payload.libraryFile) form.set("library_file", payload.libraryFile)
+  const response = await fetch(`${apiBase}/admin/import-accounts`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+  return handleResponse<ApiImportAccountsSummary>(response)
+}
+
+export async function apiChangePassword(
+  currentPassword: string,
+  newPassword: string,
+  accessToken: string,
+): Promise<ApiUser> {
+  const response = await fetch(`${apiBase}/users/change-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  })
+  return handleResponse<ApiUser>(response)
+}
+
+export async function apiListDepartments(accessToken: string): Promise<ApiDepartment[]> {
+  const response = await fetch(`${apiBase}/departments`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiDepartment[]>(response)
+}
+
+export async function apiAssignDepartmentDean(
+  departmentId: number,
+  userId: number,
+  accessToken: string,
+): Promise<ApiDepartment> {
+  const response = await fetch(`${apiBase}/departments/${departmentId}/assign-dean`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ user_id: userId }),
+  })
+  return handleResponse<ApiDepartment>(response)
+}
+
+export async function apiAssignDepartmentHod(
+  departmentId: number,
+  userId: number,
+  accessToken: string,
+): Promise<ApiDepartment> {
+  const response = await fetch(`${apiBase}/departments/${departmentId}/assign-hod`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ user_id: userId }),
+  })
+  return handleResponse<ApiDepartment>(response)
+}
+
+export async function apiListDepartmentSupervisors(
+  departmentId: number,
+  accessToken: string,
+): Promise<ApiDepartmentSupervisor[]> {
+  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<ApiDepartmentSupervisor[]>(response)
+}
+
+export async function apiAddDepartmentSupervisors(
+  departmentId: number,
+  supervisorUserIds: number[],
+  accessToken: string,
+): Promise<ApiDepartmentSupervisor[]> {
+  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ supervisor_user_ids: supervisorUserIds }),
+  })
+  return handleResponse<ApiDepartmentSupervisor[]>(response)
+}
+
+export async function apiRemoveDepartmentSupervisor(
+  departmentId: number,
+  supervisorUserId: number,
+  accessToken: string,
+): Promise<void> {
+  const response = await fetch(`${apiBase}/departments/${departmentId}/supervisors/${supervisorUserId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(text || response.statusText)
+  }
 }

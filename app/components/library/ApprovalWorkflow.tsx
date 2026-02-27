@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Button } from '../ui/button'
@@ -7,10 +7,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { Textarea } from '../ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
-import { CheckCircle, XCircle, Clock, FileText, Eye, MessageSquare, AlertCircle } from 'lucide-react'
+import { CheckCircle, Clock, FileText, Eye, MessageSquare, AlertCircle, ExternalLink } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select'
 import { Label } from '../ui/label'
-import { apiDownloadPaperFile, apiGetPendingPapers, apiGetReviewedPapers, apiListPapers, apiReviewPaper } from '../../lib/api'
+import {
+  apiDownloadPaperFile,
+  apiGetPendingPapers,
+  apiGetRevisionPapers,
+  apiGetReviewedPapers,
+  apiReviewPaper,
+  apiUploadCorrectedPaperFile,
+} from '../../lib/api'
 import type { ApiPaper } from '../../lib/api'
 
 const ACCESS_TOKEN_KEY = 'murrs_access_token'
@@ -27,7 +34,18 @@ export function ApprovalWorkflow() {
   const [reviewDecision, setReviewDecision] = useState('')
   const [reviewComments, setReviewComments] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [reviewError, setReviewError] = useState('')
+  const [submittingReview, setSubmittingReview] = useState(false)
+  const [correctedFile, setCorrectedFile] = useState<File | null>(null)
+  const [correctedNote, setCorrectedNote] = useState('')
+  const [uploadingCorrectedFile, setUploadingCorrectedFile] = useState(false)
+  const [documentViewerUrl, setDocumentViewerUrl] = useState<string | null>(null)
+  const [documentViewerName, setDocumentViewerName] = useState<string>('')
+  const [documentMimeType, setDocumentMimeType] = useState<string>('')
+  const [documentLoading, setDocumentLoading] = useState(false)
   const isLibrarian = user?.role === 'librarian'
+  const canUploadCorrection = user?.role === 'lecturer' || user?.role === 'project_supervisor'
+  const correctedFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const loadAll = async () => {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY)
@@ -41,7 +59,7 @@ export function ApprovalWorkflow() {
       const [pending, approved, revision] = await Promise.all([
         apiGetPendingPapers(token),
         apiGetReviewedPapers(token),
-        apiListPapers({ status: 'revision', sort: 'newest', limit: 50 }),
+        apiGetRevisionPapers(token),
       ])
       setPendingSubmissions(pending)
       setApprovedPapers(approved)
@@ -57,7 +75,16 @@ export function ApprovalWorkflow() {
     void loadAll()
   }, [])
 
-  const handleDownload = async (paperId: number) => {
+  const clearDocumentViewer = () => {
+    if (documentViewerUrl) {
+      URL.revokeObjectURL(documentViewerUrl)
+    }
+    setDocumentViewerUrl(null)
+    setDocumentViewerName('')
+    setDocumentMimeType('')
+  }
+
+  const handleDownloadDocument = async (paperId: number) => {
     if (!isAuthenticated) {
       navigate('/login')
       return
@@ -67,18 +94,31 @@ export function ApprovalWorkflow() {
       navigate('/login')
       return
     }
+
+    setDocumentLoading(true)
     try {
       const { blob, filename } = await apiDownloadPaperFile(paperId, token)
+      const resolvedName =
+        (filename && !/^paper-\d+$/i.test(filename) ? filename : '') ||
+        selectedPaper?.file_name ||
+        selectedPaper?.title ||
+        `paper-${paperId}`
+      const resolvedMime = blob.type || selectedPaper?.mime_type || ''
       const url = URL.createObjectURL(blob)
+      setDocumentViewerUrl(url)
+      setDocumentViewerName(resolvedName)
+      setDocumentMimeType(resolvedMime)
+
       const a = document.createElement('a')
       a.href = url
-      a.download = filename
+      a.download = resolvedName
       document.body.appendChild(a)
       a.click()
       a.remove()
-      URL.revokeObjectURL(url)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to download paper')
+    } finally {
+      setDocumentLoading(false)
     }
   }
 
@@ -86,10 +126,20 @@ export function ApprovalWorkflow() {
     if (!selectedPaper || !reviewDecision) return
     const token = localStorage.getItem(ACCESS_TOKEN_KEY)
     if (!token) {
-      setError('Missing auth token.')
+      setReviewError('Missing auth token.')
       return
     }
+    setReviewError('')
+    setSubmittingReview(true)
     try {
+      if (canUploadCorrection && correctedFile) {
+        setUploadingCorrectedFile(true)
+        const updated = await apiUploadCorrectedPaperFile(selectedPaper.id, correctedFile, correctedNote, token)
+        setSelectedPaper(updated)
+        setCorrectedFile(null)
+        setCorrectedNote('')
+        setUploadingCorrectedFile(false)
+      }
       const decisionForApi = (isLibrarian && reviewDecision === 'publish' ? 'approve' : reviewDecision) as 'approve' | 'revision' | 'reject'
       await apiReviewPaper(selectedPaper.id, decisionForApi, reviewComments, token)
       setDialogOpen(false)
@@ -98,29 +148,62 @@ export function ApprovalWorkflow() {
       setReviewDecision('')
       await loadAll()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit review')
+      const message = err instanceof Error ? err.message : 'Failed to submit review'
+      setError(message)
+      setReviewError(message)
+      setUploadingCorrectedFile(false)
+    } finally {
+      setSubmittingReview(false)
     }
   }
 
   const openReviewDialog = (paper: ApiPaper) => {
     setSelectedPaper(paper)
     setDialogOpen(true)
+    setReviewError('')
     setReviewComments('')
     setReviewDecision('')
+    setCorrectedFile(null)
+    setCorrectedNote('')
   }
 
   const handleCancel = () => {
+    clearDocumentViewer()
     setDialogOpen(false)
     setSelectedPaper(null)
+    setReviewError('')
     setReviewComments('')
     setReviewDecision('')
+    setCorrectedFile(null)
+    setCorrectedNote('')
+  }
+
+  useEffect(() => {
+    if (!dialogOpen) {
+      clearDocumentViewer()
+    }
+  }, [dialogOpen])
+
+  const handlePickCorrectedFile = () => {
+    correctedFileInputRef.current?.click()
+  }
+
+  const handleCorrectedFileSelected = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCorrectedFile(file)
+    e.currentTarget.value = ''
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl mb-2">Approval Workflow</h2>
-        <p className="text-muted-foreground">Review and manage research paper submissions</p>
+        <h2 className="text-2xl mb-2">{isLibrarian ? 'Publication Workflow' : 'Approval Workflow'}</h2>
+        <p className="text-muted-foreground">
+          {isLibrarian
+            ? 'Publish fully approved research papers'
+            : 'Review and manage research paper submissions'}
+        </p>
       </div>
 
       {loading && (
@@ -138,25 +221,29 @@ export function ApprovalWorkflow() {
         <TabsList>
           <TabsTrigger value="pending" className="flex items-center gap-2">
             <Clock className="size-4" />
-            Pending Review
+            {isLibrarian ? 'Ready to Publish' : 'Pending Review'}
             <Badge variant="destructive" className="ml-1">
               {pendingSubmissions.length}
             </Badge>
           </TabsTrigger>
-          <TabsTrigger value="approved" className="flex items-center gap-2">
-            <CheckCircle className="size-4" />
-            Approved
-            <Badge variant="secondary" className="ml-1">
-              {approvedPapers.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="revision" className="flex items-center gap-2">
-            <AlertCircle className="size-4" />
-            Revision Requested
-            <Badge variant="secondary" className="ml-1">
-              {revisionRequested.length}
-            </Badge>
-          </TabsTrigger>
+          {!isLibrarian && (
+            <TabsTrigger value="approved" className="flex items-center gap-2">
+              <CheckCircle className="size-4" />
+              Approved
+              <Badge variant="secondary" className="ml-1">
+                {approvedPapers.length}
+              </Badge>
+            </TabsTrigger>
+          )}
+          {!isLibrarian && (
+            <TabsTrigger value="revision" className="flex items-center gap-2">
+              <AlertCircle className="size-4" />
+              Revision Requested
+              <Badge variant="secondary" className="ml-1">
+                {revisionRequested.length}
+              </Badge>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="pending" className="space-y-4">
@@ -196,7 +283,8 @@ export function ApprovalWorkflow() {
           ))}
         </TabsContent>
 
-        <TabsContent value="approved" className="space-y-4">
+        {!isLibrarian && (
+          <TabsContent value="approved" className="space-y-4">
           {approvedPapers.map((paper) => (
             <Card key={paper.id}>
               <CardHeader>
@@ -225,9 +313,11 @@ export function ApprovalWorkflow() {
               </CardContent>
             </Card>
           ))}
-        </TabsContent>
+          </TabsContent>
+        )}
 
-        <TabsContent value="revision" className="space-y-4">
+        {!isLibrarian && (
+          <TabsContent value="revision" className="space-y-4">
           <Card>
             <CardContent className="pt-4 text-sm text-muted-foreground">
               Revision requested items are waiting for the student to resubmit an updated version. Reviewers cannot approve these until resubmission.
@@ -264,7 +354,8 @@ export function ApprovalWorkflow() {
               </CardContent>
             </Card>
           ))}
-        </TabsContent>
+          </TabsContent>
+        )}
       </Tabs>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -302,12 +393,72 @@ export function ApprovalWorkflow() {
                   <FileText className="size-12 mx-auto text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">Abstract preview</p>
                   <p className="text-xs text-muted-foreground max-w-md">{selectedPaper.abstract || 'No abstract available.'}</p>
-                  <Button variant="outline" size="sm" onClick={() => void handleDownload(selectedPaper.id)} disabled={!isAuthenticated}>
-                    <Eye className="size-4 mr-2" />
-                    Open Full Document
-                  </Button>
+                  <div className="flex w-full items-center justify-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-w-[120px]"
+                      onClick={() => void handleDownloadDocument(selectedPaper.id)}
+                      disabled={!isAuthenticated || documentLoading}
+                    >
+                      {documentLoading ? 'Downloading...' : 'Download'}
+                    </Button>
+                  </div>
                 </div>
               </div>
+
+              {documentViewerUrl && (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium">
+                      Document Workspace: {selectedPaper.title} ({documentViewerName || 'Document'})
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(documentViewerUrl, '_blank', 'noopener,noreferrer')}
+                    >
+                      <ExternalLink className="size-4 mr-2" />
+                      Open in New Tab
+                    </Button>
+                  </div>
+                  {(documentMimeType || '').toLowerCase().includes('pdf') ? (
+                    <iframe
+                      src={documentViewerUrl}
+                      title="Paper Document Viewer"
+                      className="w-full h-[70vh] rounded border bg-white"
+                    />
+                  ) : (
+                    <div className="rounded border p-3 text-sm text-muted-foreground">
+                      This file format may not render inline in all browsers. Download to review and edit.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {canUploadCorrection && (
+                <div className="space-y-2">
+                  <input
+                    ref={correctedFileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx"
+                    className="hidden"
+                    onChange={handleCorrectedFileSelected}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handlePickCorrectedFile}
+                    disabled={uploadingCorrectedFile}
+                  >
+                    {correctedFile ? 'Change Corrected File' : 'Upload Corrected Version'}
+                  </Button>
+                  {correctedFile && (
+                    <p className="text-xs text-muted-foreground">
+                      Attached: {correctedFile.name} (will send on Submit Review)
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <div>
@@ -320,8 +471,6 @@ export function ApprovalWorkflow() {
                       {isLibrarian ? (
                         <>
                           <SelectItem value="publish">Publish</SelectItem>
-                          <SelectItem value="revision">Request Revisions</SelectItem>
-                          <SelectItem value="reject">Reject</SelectItem>
                         </>
                       ) : (
                         <>
@@ -346,11 +495,14 @@ export function ApprovalWorkflow() {
                 </div>
 
                 <div className="flex justify-end gap-2">
+                  {reviewError && (
+                    <p className="mr-auto text-sm text-destructive">{reviewError}</p>
+                  )}
                   <Button variant="outline" onClick={handleCancel}>
                     Cancel
                   </Button>
-                  <Button onClick={() => void handleReview()} disabled={!reviewDecision}>
-                    {isLibrarian ? 'Publish Work' : 'Submit Review'}
+                  <Button onClick={() => void handleReview()} disabled={!reviewDecision || submittingReview}>
+                    {submittingReview ? 'Submitting...' : isLibrarian ? 'Publish Work' : 'Submit Review'}
                   </Button>
                 </div>
               </div>

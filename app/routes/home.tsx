@@ -31,7 +31,25 @@ export default function Home() {
   const [overdueCount, setOverdueCount] = useState(0);
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const isReviewer = user?.role === 'librarian' || user?.role === 'project_coordinator' || user?.role === 'hod' || user?.role === 'lecturer'
+  const hasRole = (role: string) => !!user && (user.role === role || (user.roles || []).includes(role as typeof user.role))
+  const roleLabel = (() => {
+    if (!user) return ''
+    if (hasRole('system_admin')) return 'System Admin'
+    if (hasRole('head_library')) return 'Head Library'
+    if (hasRole('librarian')) return 'Librarian'
+    if (hasRole('dean')) return 'Dean'
+    if (hasRole('hod')) return 'HOD'
+    if (hasRole('project_coordinator')) return 'Project Coordinator'
+    if (hasRole('project_supervisor')) return 'Project Supervisor'
+    if (hasRole('lecturer')) return 'Lecturer'
+    if (user.role === 'student' || user.role === 'member') return 'Student'
+    return user.role
+  })()
+  const isReviewer =
+    !user?.mustChangePassword &&
+    (hasRole('librarian') || hasRole('project_coordinator') || hasRole('hod') || hasRole('lecturer') || hasRole('project_supervisor'))
+  const isAdminAreaUser = hasRole('system_admin')
+  const isAdministrationUser = isAdminAreaUser || hasRole('dean') || hasRole('hod') || hasRole('project_coordinator')
 
   const handleTabChange = (tab: string) => {
     const publicTabs = new Set(['catalog', 'search']);
@@ -47,7 +65,7 @@ export default function Home() {
 
     // Role-based guards for authenticated non-guest users
     if (tab === 'approval' && !isReviewer) return;
-    if (tab === 'librarian' && user?.role !== 'librarian') return;
+    if (tab === 'librarian' && !isAdministrationUser) return;
 
     setActiveTab(tab);
   };
@@ -160,7 +178,7 @@ export default function Home() {
                   <div className="text-right">
                     <p className="text-sm font-medium">{user.name}</p>
                     <p className="text-xs text-muted-foreground capitalize">
-                      {user.role === 'student' || user.role === 'member' ? 'Student' : user.role === 'project_coordinator' ? 'Project Coordinator' : user.role === 'hod' ? 'HOD' : user.role}
+                      {roleLabel}
                     </p>
                     {user.university && (
                       <p className="text-xs text-muted-foreground">{user.university}</p>
@@ -197,9 +215,14 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-6">
+        {user?.mustChangePassword && (
+          <div className="mb-4 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            First-time login detected. Change your temporary password in the Profile tab to continue using all features.
+          </div>
+        )}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className={`grid w-full mb-6 ${
-            user?.role === 'librarian' ? 'grid-cols-7' :
+            isAdministrationUser ? 'grid-cols-7' :
             isReviewer ? 'grid-cols-6' :
             user?.role === 'student' || user?.role === 'member' ? 'grid-cols-5' :
             'grid-cols-2'
@@ -259,13 +282,13 @@ export default function Home() {
               </TabsTrigger>
             )}
 
-            {user?.role === 'librarian' && (
+            {isAdministrationUser && (
               <TabsTrigger 
                 value="librarian"
                 className="flex items-center gap-2"
               >
                 <Settings className="size-4" />
-                <span className="hidden sm:inline">Librarian</span>
+                <span className="hidden sm:inline">Administration</span>
               </TabsTrigger>
             )}
           </TabsList>
@@ -296,17 +319,19 @@ export default function Home() {
             </TabsContent>
           )}
 
-          {user?.role === 'librarian' && (
+          {isAdministrationUser && (
             <TabsContent value="librarian">
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-bold mb-4">Account Management</h2>
                   <AccountManagement />
                 </div>
+                {isAdminAreaUser && (
                 <div>
                   <h2 className="text-2xl font-bold mb-4">Library Statistics</h2>
                   <LibraryStats />
                 </div>
+                )}
               </div>
             </TabsContent>
           )}

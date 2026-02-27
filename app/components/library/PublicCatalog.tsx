@@ -5,12 +5,18 @@ import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Input } from '../ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { useAuth } from '../../context/AuthContext'
 import { Bookmark, Download, Eye, Grid3x3, List, Search, Star, TrendingUp } from 'lucide-react'
-import { apiDownloadPaperFile, apiListPapers } from '../../lib/api'
+import { apiDownloadPaperFile, apiListPapers, apiTrackPaperView } from '../../lib/api'
 import type { ApiPaper } from '../../lib/api'
 
 const ACCESS_TOKEN_KEY = 'murrs_access_token'
+
+const formatViewCount = (value: number): string => {
+  if (value < 1000) return String(value)
+  return `${(value / 1000).toFixed(1)}K`
+}
 
 const categories = [
   { id: 'all', label: 'All Papers' },
@@ -36,6 +42,8 @@ export function PublicCatalog() {
   const [papers, setPapers] = useState<ApiPaper[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [selectedPaper, setSelectedPaper] = useState<ApiPaper | null>(null)
+  const [abstractOpen, setAbstractOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -98,6 +106,18 @@ export function PublicCatalog() {
     setBookmarked(next)
   }
 
+  const openAbstract = (paper: ApiPaper) => {
+    void apiTrackPaperView(paper.id)
+      .then((updated) => {
+        setPapers((prev) => prev.map((p) => (p.id === updated.id ? { ...p, views: updated.views } : p)))
+      })
+      .catch(() => {
+        // Keep UI responsive even if analytics tracking fails.
+      })
+    setSelectedPaper(paper)
+    setAbstractOpen(true)
+  }
+
   const categoryCounts = useMemo(() => {
     const all = papers.length
     const trending = papers.filter((p) => p.views > 2500).length
@@ -107,11 +127,11 @@ export function PublicCatalog() {
   }, [papers])
 
   const PaperCard = ({ paper }: { paper: ApiPaper }) => (
-    <Card className="hover:shadow-lg transition-all">
+    <Card className="hover:shadow-lg transition-all cursor-pointer" onClick={() => openAbstract(paper)}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
-            <CardTitle className="text-base line-clamp-2 hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</CardTitle>
+            <CardTitle className="text-base line-clamp-2 hover:text-primary">{paper.title}</CardTitle>
             <CardDescription className="text-xs mt-1">{paper.authors.map((a) => a.name).join(', ') || 'Unknown Author'}</CardDescription>
           </div>
           <div className="flex items-center gap-1 text-yellow-500 flex-shrink-0">
@@ -130,10 +150,18 @@ export function PublicCatalog() {
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="flex items-center gap-1 text-muted-foreground">
-            <Eye className="h-3 w-3" />
-            <span>{(paper.views / 1000).toFixed(1)}K</span>
-          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto p-0 justify-start text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation()
+              openAbstract(paper)
+            }}
+          >
+            <Eye className="h-3 w-3 mr-1" />
+            <span>{formatViewCount(paper.views)}</span>
+          </Button>
           <div className="flex items-center gap-1 text-muted-foreground">
             <Download className="h-3 w-3" />
             <span>{paper.downloads}</span>
@@ -148,7 +176,10 @@ export function PublicCatalog() {
             size="sm"
             variant="outline"
             className="flex-1"
-            onClick={() => void handleDownload(paper.id)}
+            onClick={(e) => {
+              e.stopPropagation()
+              void handleDownload(paper.id)
+            }}
             disabled={!isAuthenticated || user?.role === 'guest'}
           >
             <Download className="h-3 w-3 mr-1" />
@@ -157,7 +188,10 @@ export function PublicCatalog() {
           <Button
             size="sm"
             variant={bookmarked.has(paper.id) ? 'default' : 'outline'}
-            onClick={() => toggleBookmark(paper.id)}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleBookmark(paper.id)
+            }}
             className="px-3"
           >
             <Bookmark className="h-4 w-4" />
@@ -233,13 +267,13 @@ export function PublicCatalog() {
           ) : (
             <div className="space-y-3">
               {papers.map((paper, idx) => (
-                <Card key={paper.id} className="hover:shadow-md transition-shadow">
+                <Card key={paper.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openAbstract(paper)}>
                   <CardContent className="pt-6">
                     <div className="flex items-start gap-4 justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-semibold text-muted-foreground">#{idx + 1}</span>
-                          <h3 className="font-semibold hover:text-primary cursor-pointer" onClick={() => navigate(`/paper/${paper.id}`)}>{paper.title}</h3>
+                          <h3 className="font-semibold hover:text-primary">{paper.title}</h3>
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">{paper.authors.map((a) => a.name).join(', ') || 'Unknown Author'}</p>
                         <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{paper.abstract || 'No abstract available.'}</p>
@@ -255,10 +289,18 @@ export function PublicCatalog() {
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
                         <div className="text-right text-xs text-muted-foreground space-y-1 hidden sm:block">
-                          <div className="flex items-center gap-1 justify-end">
-                            <Eye className="h-3 w-3" />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-auto p-0 justify-end text-muted-foreground hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openAbstract(paper)
+                            }}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
                             {paper.views}
-                          </div>
+                          </Button>
                           <div className="flex items-center gap-1 justify-end">
                             <Download className="h-3 w-3" />
                             {paper.downloads}
@@ -267,7 +309,10 @@ export function PublicCatalog() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void handleDownload(paper.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleDownload(paper.id)
+                          }}
                           disabled={!isAuthenticated || user?.role === 'guest'}
                         >
                           <Download className="h-4 w-4" />
@@ -275,7 +320,10 @@ export function PublicCatalog() {
                         <Button
                           size="sm"
                           variant={bookmarked.has(paper.id) ? 'default' : 'outline'}
-                          onClick={() => toggleBookmark(paper.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleBookmark(paper.id)
+                          }}
                         >
                           <Bookmark className="h-4 w-4" />
                         </Button>
@@ -288,6 +336,28 @@ export function PublicCatalog() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={abstractOpen} onOpenChange={setAbstractOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedPaper?.title || 'Paper Abstract'}</DialogTitle>
+            <DialogDescription>
+              {selectedPaper?.authors.map((a) => a.name).join(', ') || 'Unknown Author'} • {selectedPaper?.discipline || 'General'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2 flex-wrap">
+              <Badge variant="outline">{selectedPaper?.year || '-'}</Badge>
+              <Badge variant="outline">{selectedPaper?.document_type || 'Research Paper'}</Badge>
+              <Badge variant="secondary">{selectedPaper?.university || 'Unknown'}</Badge>
+            </div>
+            <div className="rounded-md border p-3 text-sm leading-6 text-muted-foreground max-h-[50vh] overflow-auto">
+              {selectedPaper?.abstract || 'No abstract available.'}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+
